@@ -23,7 +23,7 @@ export default async function LoginPage() {
             Sign in to see how your campaigns performed and what changed since last month.
           </p>
         </div>
-        <p className="text-sm text-white/50">Powered by Aimex Studio</p>
+        <p className="text-sm text-white/50">Reports are updated at the start of each month.</p>
       </section>
       <section className="flex items-center justify-center p-6">
         <div className="w-full max-w-sm">
