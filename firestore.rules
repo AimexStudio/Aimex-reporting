@@ -1,0 +1,11 @@
+rules_version = '2';
+
+// Nobody can read or write this database from a browser or app.
+// Only the dashboard's server (using the Admin SDK, which bypasses these rules) can.
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

@@ -1,0 +1,8 @@
+# Firebase App Hosting settings. Secrets are stored in Google Cloud Secret Manager:
+#   firebase apphosting:secrets:set sessionSecret
+runConfig:
+  minInstances: 0
+  maxInstances: 2
+env:
+  - variable: SESSION_SECRET
+    secret: sessionSecret

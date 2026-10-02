@@ -1,0 +1,93 @@
+@import "tailwindcss";
+
+/* ─────────────────────────────────────────────────────────────────────
+   BRAND SETTINGS — change these to match Aimex Studio exactly.
+   --color-brand is the accent (highlights, chart focus, badges).
+   --color-night / --color-night-2 are the dark brand surfaces.
+   Logo: public/brand/logo-color.png (always orange).
+   ───────────────────────────────────────────────────────────────────── */
+@theme {
+  --color-brand: #e54019; /* Aimex Studio orange, sampled from the logo */
+  --color-brand-strong: #c2340f;
+  --color-brand-soft: #fdece6;
+  --color-night: #0e1320;
+  --color-night-2: #182033;
+  --color-night-3: #26304a;
+
+  --color-page: #f3f4f6;
+  --color-surface: #ffffff;
+  --color-ink: #121826;
+  --color-ink-2: #4b5563;
+  --color-ink-3: #8a94a6;
+  --color-line: #e2e5ea;
+  --color-line-soft: #eef0f3;
+
+  --color-good: #12946a;
+  --color-good-soft: #e3f4ec;
+  --color-bad: #a9235f; /* crimson-magenta, kept distinct from the brand orange */
+  --color-bad-soft: #f8e4ee;
+
+  /* kept for admin screens */
+  --color-accent: #12946a;
+  --color-accent-soft: #e3f4ec;
+  --color-neg: #a9235f;
+  --color-neg-soft: #f8e4ee;
+
+  --color-series-1: #e54019;
+  --color-series-2: #3d6fd6;
+  --color-series-3: #2aa58a;
+  --color-series-4: #8a63d2;
+  --color-series-5: #c9a14a;
+
+  --font-sans: "Schibsted Grotesk", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-display: "Montserrat", "Schibsted Grotesk", ui-sans-serif, system-ui, sans-serif;
+
+  --text-headline: clamp(1.6rem, 1rem + 2.4vw, 2.6rem);
+  --text-headline--line-height: 1.15;
+}
+
+html { background: var(--color-page); color: var(--color-ink); }
+body { font-family: var(--font-sans); font-feature-settings: "tnum" 1, "ss01" 1; -webkit-font-smoothing: antialiased; }
+
+:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; border-radius: 4px; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation: none !important; transition: none !important; }
+}
+
+@layer components {
+/* Shared form controls */
+.field { display: grid; gap: 0.375rem; font-size: 0.875rem; }
+.field > span { color: var(--color-ink-2); font-weight: 500; }
+.input {
+  width: 100%; border: 1px solid var(--color-line); background: var(--color-surface);
+  border-radius: 8px; padding: 0.55rem 0.75rem; font: inherit; color: var(--color-ink);
+}
+.input:focus { outline: 2px solid var(--color-accent); outline-offset: -1px; border-color: transparent; }
+.btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 0.5rem;
+  border-radius: 8px; padding: 0.55rem 1rem; font-weight: 600; font-size: 0.875rem;
+  background: var(--color-night); color: white; cursor: pointer; white-space: nowrap;
+}
+.btn:hover { background: var(--color-night-3); }
+.btn:disabled { opacity: 0.55; cursor: progress; }
+.btn-quiet { background: transparent; color: var(--color-ink); border: 1px solid var(--color-line); }
+.btn-quiet:hover { background: var(--color-surface); }
+.btn-danger { background: var(--color-neg); }
+.btn-danger:hover { background: #8a2b3d; }
+}
+
+/* Headline sentence reveal — the one orchestrated motion */
+@keyframes rise { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+.rise { animation: rise 600ms cubic-bezier(.2,.7,.2,1) both; }
+
+/* Brand headings, in the style of aimexstudio.co.za: "WHAT WE OFFER" with the second part bold */
+.brand-h {
+  font-family: var(--font-display); text-transform: uppercase; letter-spacing: 0.04em;
+  font-weight: 400; font-size: 1.15rem; line-height: 1.2;
+}
+.brand-h strong { font-weight: 800; }
+.num { font-family: var(--font-display); font-weight: 700; letter-spacing: -0.01em; font-variant-numeric: tabular-nums; }
+
+@keyframes grow { from { transform: scaleX(0); } to { transform: scaleX(1); } }
+.grow { transform-origin: left; animation: grow 900ms cubic-bezier(.2,.7,.2,1) both; }
