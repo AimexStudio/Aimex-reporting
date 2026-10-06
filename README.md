@@ -135,6 +135,8 @@ To try an upload straight away, use a real Ads Manager export, or the `samples/`
 
 You can upload either of two kinds of file.
 
+**A Google Analytics 4 "Reports snapshot"** (CSV download from the Reports snapshot page): saved as the **Website** channel, with active users, new users, sessions, average engagement time (and key events and revenue when tracked), plus the sessions-by-source table for the report's "Where your visitors came from" section. The month comes from the report's start and end dates.
+
 **A platform export as it comes**, from Meta Ads Manager or Google Ads (either "CSV" or "CSV (Excel)" download). Title lines above the column headings, like Google's "Campaign report" and date range, are skipped, and the month is read from that date range. Google's "Total: …" rows and "--" blanks are handled. For Google Ads, choose **Count conversions as: Leads** on the file if those conversions are form fills or calls, so they add up with Meta leads. Rows broken down by campaign, ad set, ad, age or gender are added up into one total per channel. The month is read from the "Reporting starts" date and the channel is detected (Meta Ads, Google Ads), or set with the Channel field in the upload form. Meta's "Results" column is saved as the right measure for its result type, so "Leads (form)" becomes leads and "Purchase" becomes conversions.
 
 **A simple sheet with one row per channel**, as in `samples/template.csv`:
@@ -157,6 +159,8 @@ What the importer does with every file:
 - Any other number column is kept as a custom metric under its column name.
 
 The preview lists exactly what was combined, skipped and why, before anything is saved.
+
+The downloadable template is only for channels with no export of their own (for example email or offline campaigns). The unchanged template is refused, and a file can't repeat a channel and month that another file in the same upload already contains.
 
 ## How client data is kept separate
 

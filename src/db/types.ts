@@ -51,7 +51,14 @@ export interface RowAttrs { delivery?: string; resultType?: string; budget?: num
 export interface BreakdownRow { label: string; metrics: Record<string, number>; attrs?: RowAttrs }
 export interface AudienceRow { age: string; gender: string; metrics: Record<string, number> }
 /** Which ads, ad sets, campaigns and audiences produced the results (from platform exports). */
-export interface Breakdowns { ads?: BreakdownRow[]; adSets?: BreakdownRow[]; campaigns?: BreakdownRow[]; audiences?: AudienceRow[] }
+export interface Breakdowns {
+  ads?: BreakdownRow[];
+  adSets?: BreakdownRow[];
+  campaigns?: BreakdownRow[];
+  audiences?: AudienceRow[];
+  /** Website traffic by source / medium (from Google Analytics). */
+  sources?: BreakdownRow[];
+}
 
 export interface ChannelEntry {
   channel: string;

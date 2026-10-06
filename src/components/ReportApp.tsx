@@ -6,7 +6,7 @@ import type { DashboardData, MonthData } from "@/lib/data";
 import { formatMetric, formatPercent, monthLabel } from "@/lib/metrics";
 import { outcomeMetric, outcomeNoun } from "@/lib/insights";
 import { ReportBody } from "./Dashboard";
-import { BreakdownTable, ChannelTiles, GoalsSection, NotesPanel, Roadmap, RoiPlanner, SalesSection } from "./ReportSections";
+import { BreakdownTable, ChannelTiles, GoalsSection, NotesPanel, Roadmap, RoiPlanner, SalesSection, TrafficSources } from "./ReportSections";
 import { FullscreenButton, PrintButton } from "./ReportTools";
 
 type Section = { id: string; label: string; icon: string };
@@ -41,7 +41,7 @@ export function ReportApp({ data, companies, currentCompany, manageHref, signOut
   const hasSpend = months.some((m) => (m.totals.spend ?? 0) > 0);
   const sections: Section[] = [
     { id: "overview", label: group ? "Group overview" : "Overview", icon: "grid" },
-    ...channels.map((c) => ({ id: `ch:${c}`, label: c, icon: /meta|facebook|instagram/i.test(c) ? "people" : /google/i.test(c) ? "search" : "chart" })),
+    ...channels.map((c) => ({ id: `ch:${c}`, label: c, icon: /meta|facebook|instagram/i.test(c) ? "people" : /google/i.test(c) ? "search" : /web|site|analytics/i.test(c) ? "globe" : "chart" })),
     ...(Object.keys(settings.sales ?? {}).length ? [{ id: "sales", label: "Sales", icon: "building" }] : []),
     ...(goals.length ? [{ id: "goals", label: "Goals", icon: "target" }] : []),
     ...(!group && hasSpend ? [{ id: "roi", label: "ROI planner", icon: "calc" }] : []),
@@ -154,7 +154,12 @@ export function ReportApp({ data, companies, currentCompany, manageHref, signOut
               })(),
               afterTiles: (() => {
                 const b = channelMonths.find((m) => m.month === selected)?.channels[0]?.breakdowns;
-                return b ? <BreakdownTable b={b} currency={cur} channel={channelName} month={selected} /> : null;
+                return b ? (
+                  <>
+                    <BreakdownTable b={b} currency={cur} channel={channelName} month={selected} />
+                    {b.sources?.length ? <TrafficSources rows={b.sources} month={selected} /> : null}
+                  </>
+                ) : null;
               })(),
             }} />
         )}
@@ -248,6 +253,7 @@ function NavIcon({ name }: { name: string }) {
     search: <><circle cx="11" cy="11" r="6" {...p} /><path d="m20 20-4.5-4.5" {...p} /></>,
     chart: <><path d="M4 20V10M10 20V4M16 20v-7M22 20H2" {...p} /></>,
     target: <><circle cx="12" cy="12" r="8" {...p} /><circle cx="12" cy="12" r="4" {...p} /><circle cx="12" cy="12" r="0.8" {...p} /></>,
+    globe: <><circle cx="12" cy="12" r="8.5" {...p} /><path d="M3.5 12h17M12 3.5c2.3 2.4 3.5 5.2 3.5 8.5s-1.2 6.1-3.5 8.5c-2.3-2.4-3.5-5.2-3.5-8.5s1.2-6.1 3.5-8.5z" {...p} /></>,
     building: <><path d="M4 21V5.5L12 3l8 2.5V21M4 21h16M9 21v-4h6v4M8 8h.01M12 8h.01M16 8h.01M8 12h.01M12 12h.01M16 12h.01" {...p} /></>,
     calc: <><rect x="5" y="3" width="14" height="18" rx="2" {...p} /><path d="M8 7h8M8 11h.01M12 11h.01M16 11h.01M8 15h.01M12 15h.01M16 15h.01M8 18h8" {...p} /></>,
   };

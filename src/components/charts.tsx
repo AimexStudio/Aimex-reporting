@@ -54,7 +54,7 @@ export function Donut({ data, format, centerValue, centerLabel, colors }: {
           <li key={d.name} className="flex items-center justify-between gap-3">
             <span className="flex min-w-0 items-center gap-2">
               <span className="size-3 shrink-0 rounded-sm" style={{ background: palette[i % palette.length] }} />
-              <span className="truncate">{d.name}</span>
+              <span className="min-w-0 break-words">{d.name}</span>
             </span>
             <span className="shrink-0 text-ink-2"><span className="num text-ink">{formatPercent(d.value / total, 0)}</span> {format(d.value)}</span>
           </li>

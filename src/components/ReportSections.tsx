@@ -91,6 +91,14 @@ export function ChannelTiles({ m, b, currency, benchmark }: {
   if (!m.clicks && m.impressions) tiles.push({ key: "impr", icon: "impressions", label: "Total impressions", value: n(m.impressions), sub: "Times your ads were shown" });
   if (m.reach) tiles.push({ key: "reach", icon: "leads", label: "Unique reach", value: n(m.reach), sub: "Different people who saw your ads" });
   if (m.clicks && m.spend != null && tiles.length < 5) tiles.push({ key: "spend2", icon: "spend", label: "Total cost", value: formatMetric("spend", m.spend, currency, { exact: true }), sub: "Total for the reporting period" });
+  if (!m.spend && m.sessions != null) {
+    // Website (Google Analytics) figures
+    tiles.push({ key: "sessions", icon: "sessions", label: "Website sessions", value: n(m.sessions), sub: "Visits to the website" });
+    if (m.users != null) tiles.push({ key: "users", icon: "leads", label: "Active users", value: n(m.users), sub: m.sessions && m.users ? `${(m.sessions / m.users).toFixed(2)} visits per person` : "People who used the site" });
+    if (m.new_users != null) tiles.push({ key: "new", icon: "leads", label: "New users", value: n(m.new_users), sub: m.users ? `${formatPercent(m.new_users / m.users, 0)} were first-time visitors` : "First-time visitors" });
+    if (m.avg_engagement_time != null) tiles.push({ key: "eng", icon: "clicks", label: "Avg engagement time", value: duration(m.avg_engagement_time), sub: "Per active user" });
+    if (m.key_events) tiles.push({ key: "ke", icon: "conversions", label: "Key events", value: n(m.key_events), sub: "Enquiries and other tracked actions", tone: "good" });
+  }
   if (!tiles.length) return null;
   return (
     <section aria-label="Key figures" className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,250px),1fr))] gap-4">
@@ -104,6 +112,84 @@ export function ChannelTiles({ m, b, currency, benchmark }: {
           <p className={`mt-2 text-sm ${t.key === "out" && m.clicks ? "font-medium text-good" : "text-ink-2"}`}>{t.sub}</p>
         </div>
       ))}
+    </section>
+  );
+}
+
+function duration(sec: number) {
+  const s = Math.round(sec);
+  return s >= 60 ? `${Math.floor(s / 60)}m ${String(s % 60).padStart(2, "0")}s` : `${s}s`;
+}
+
+/* ================= website traffic sources (Google Analytics) ================= */
+
+/** Groups GA4 "source / medium" values into plain-English groups. */
+export function sourceGroup(label: string): string {
+  const l = label.toLowerCase();
+  if (/^\(direct\)/.test(l)) return "Direct";
+  if (/(^|\s)(cpc|ppc|paid)$/.test(l) && /google/.test(l)) return "Google Ads";
+  if (/\/\s*organic$/.test(l)) return "Organic search";
+  if (/^(fb|ig|facebook|instagram)\b|facebook\.com|instagram\.com/.test(l)) return "Facebook & Instagram";
+  if (/ai-assistant|chatgpt|perplexity|gemini|copilot/.test(l)) return "AI assistants";
+  if (/\(data not available\)|\(not set\)/.test(l)) return "Unknown";
+  if (/\/\s*referral$/.test(l)) return "Other websites";
+  if (/email|newsletter|mail/.test(l)) return "Email";
+  return "Other";
+}
+
+export function TrafficSources({ rows, month }: { rows: BreakdownRow[]; month: string }) {
+  const total = rows.reduce((t, r) => t + (r.metrics.sessions ?? 0), 0);
+  if (!total) return null;
+  const groups = new Map<string, number>();
+  for (const r of rows) groups.set(sourceGroup(r.label), (groups.get(sourceGroup(r.label)) ?? 0) + (r.metrics.sessions ?? 0));
+  const gData = [...groups].sort((a, b) => b[1] - a[1]).map(([name, value]) => ({ name, value }));
+  const hasKE = rows.some((r) => r.metrics.key_events);
+  const [all, setAll] = useState(false);
+  const shown = all ? rows : rows.slice(0, 12);
+  const n = (v: number) => new Intl.NumberFormat("en-US").format(v).replace(/,/g, "\u00a0");
+  const top = gData[0];
+  return (
+    <section className={card}>
+      <SectionHead light="Where your visitors" bold="came from"
+        lead={`${top.name} brought the most visits in ${monthLabel(month)}: ${formatPercent(top.value / total, 0)} of sessions by source.`} />
+      <div className="grid min-w-0 grid-cols-1 gap-8 min-[1800px]:grid-cols-[minmax(420px,1fr)_minmax(0,1.6fr)]">
+        <div className="min-w-0 max-w-xl">
+          <h4 className="mb-4 font-semibold">Sessions by type of source</h4>
+          <Donut data={gData} format={(v) => `${n(v)} session${v === 1 ? "" : "s"}`} centerValue={n(total)} centerLabel="by source" />
+        </div>
+        <div className="min-w-0">
+          <h4 className="mb-2 font-semibold">Every source</h4>
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[520px] text-sm">
+              <thead>
+                <tr className="border-b border-line bg-page/70 text-xs uppercase tracking-wide text-ink-2">
+                  <th className="px-3 py-2.5 text-left font-semibold">Source / medium</th>
+                  <th className="px-3 py-2.5 text-left font-semibold">Type</th>
+                  <th className="px-3 py-2.5 text-right font-semibold">Sessions</th>
+                  <th className="px-3 py-2.5 text-right font-semibold">Share</th>
+                  {hasKE && <th className="px-3 py-2.5 text-right font-semibold">Key events</th>}
+                </tr>
+              </thead>
+              <tbody>
+                {shown.map((r) => (
+                  <tr key={r.label} className="border-b border-line-soft last:border-0">
+                    <th scope="row" className="max-w-[320px] truncate px-3 py-2.5 text-left font-medium" title={r.label}>{r.label}</th>
+                    <td className="whitespace-nowrap px-3 py-2.5 text-ink-2">{sourceGroup(r.label)}</td>
+                    <td className="num px-3 py-2.5 text-right">{n(r.metrics.sessions ?? 0)}</td>
+                    <td className="px-3 py-2.5 text-right text-ink-2">{formatPercent((r.metrics.sessions ?? 0) / total, 1)}</td>
+                    {hasKE && <td className="px-3 py-2.5 text-right">{r.metrics.key_events ? n(r.metrics.key_events) : "–"}</td>}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          {rows.length > 12 && (
+            <button type="button" className="mt-3 text-sm font-medium text-brand-strong hover:underline print:hidden" onClick={() => setAll(!all)}>
+              {all ? "Show fewer sources" : `Show all ${rows.length} sources`}
+            </button>
+          )}
+        </div>
+      </div>
     </section>
   );
 }

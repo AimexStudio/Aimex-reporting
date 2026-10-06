@@ -1,5 +1,6 @@
 import Papa from "papaparse";
 import { BASE_METRICS, DERIVED_ALIASES, isMonth, monthLabel } from "./metrics";
+import { isGa4Snapshot, parseGa4Snapshot } from "./ga4";
 
 export interface ParsedRow {
   month: string;
@@ -209,6 +210,8 @@ export interface ParseOptions {
 }
 
 export function parseMetricsCsv(text: string, formMonth?: string, defaultChannel?: string, opts: ParseOptions = {}): ParseResult {
+  // Google Analytics "Reports snapshot" files hold several tables; they have their own reader.
+  if (isGa4Snapshot(text)) return parseGa4Snapshot(text, formMonth, defaultChannel);
   let defaultMonth = formMonth;
   const warnings: string[] = [];
   const info: string[] = [];
