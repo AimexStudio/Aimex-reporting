@@ -436,6 +436,25 @@ export async function getOverviewData(clientId: string): Promise<DashboardData |
 }
 
 /**
+ * The reports focus on leads. A channel's "conversions" with no sales value attached
+ * (e.g. Google Ads form fills) are enquiries, so they're shown as leads. Conversions
+ * that carry revenue are real sales and stay as conversions.
+ */
+function leadsFocus(metrics: Record<string, number>, b: Breakdowns | null): { metrics: Record<string, number>; breakdowns: Breakdowns | null } {
+  if (!((metrics.conversions ?? 0) > 0) || metrics.leads != null || (metrics.revenue ?? 0) > 0) return { metrics, breakdowns: b };
+  const move = (m: Record<string, number>) => {
+    if (m.conversions == null) return m;
+    const { conversions, ...rest } = m;
+    return { ...rest, leads: (rest.leads ?? 0) + conversions };
+  };
+  const rows = <T extends { metrics: Record<string, number> }>(list?: T[]) => list?.map((r) => ({ ...r, metrics: move(r.metrics) }));
+  return {
+    metrics: move(metrics),
+    breakdowns: b ? { ...b, ads: rows(b.ads), adSets: rows(b.adSets), campaigns: rows(b.campaigns), audiences: rows(b.audiences), sources: rows(b.sources) } : null,
+  };
+}
+
+/**
  * Cost per lead / conversion should only count spend that could produce them. If a channel's
  * breakdown has ad sets (or campaigns) that spent money but produced none of its results
  * (e.g. a blog ad set buying page views), their spend is left out of `result_spend`.
@@ -457,8 +476,9 @@ async function loadMonths(clientId: string, dashId: string): Promise<MonthData[]
     .filter((m) => m.channels?.length)
     .sort((a, b) => a.month.localeCompare(b.month))
     .map((m) => {
-      const raws = m.channels.map((c) => withResultSpend(c.metrics, c.breakdowns));
-      const channels = m.channels.map((c, i) => ({ channel: c.channel, metrics: withDerived(raws[i]), breakdowns: c.breakdowns ?? null, raw: raws[i] }));
+      const focused = m.channels.map((c) => leadsFocus(c.metrics, c.breakdowns ?? null));
+      const raws = focused.map((f) => withResultSpend(f.metrics, f.breakdowns));
+      const channels = m.channels.map((c, i) => ({ channel: c.channel, metrics: withDerived(raws[i]), breakdowns: focused[i].breakdowns, raw: raws[i] }));
       const totals = deriveTotals(raws);
       channels.sort((a, b) => (b.metrics.spend ?? 0) - (a.metrics.spend ?? 0) || a.channel.localeCompare(b.channel));
       return { month: m.month, totals, channels, note: m.note ?? null, sectionNotes: m.sectionNotes ?? {}, goalActuals: m.goalActuals ?? {} };

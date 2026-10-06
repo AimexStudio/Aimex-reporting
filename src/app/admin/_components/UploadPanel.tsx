@@ -53,7 +53,7 @@ export function UploadPanel({ clientId, dashboardId, clientName, existing }: { c
     for (const f of Array.from(list)) {
       const text = await readText(f);
       const detected = parse(text, month, "").detectedSource ?? "";
-      added.push({ id: crypto.randomUUID(), name: f.name, text, channel: detected, channelTouched: false, conversionsAs: "conversions", preview: parse(text, month, detected) });
+      added.push({ id: crypto.randomUUID(), name: f.name, text, channel: detected, channelTouched: false, conversionsAs: "leads", preview: parse(text, month, detected, "leads") });
     }
     setFiles((cur) => [...cur, ...added]);
     if (inputRef.current) inputRef.current.value = "";

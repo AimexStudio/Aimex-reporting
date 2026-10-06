@@ -50,6 +50,7 @@ export const DERIVED_METRICS: (MetricDef & {
   { key: "ctr", inputs: ["clicks", "impressions"], label: "Click-through rate", kind: "percent", higherIsBetter: true, compute: (m) => div(m.clicks, m.impressions) },
   { key: "cpc", inputs: ["spend", "clicks"], label: "Cost per click", kind: "currency", higherIsBetter: false, compute: (m) => div(m.spend, m.clicks) },
   { key: "cpm", inputs: ["spend", "impressions"], label: "Cost per 1,000 impressions", kind: "currency", higherIsBetter: false, compute: (m) => { const v = div(m.spend, m.impressions); return v == null ? null : v * 1000; } },
+  { key: "lead_rate", inputs: ["leads", "clicks"], label: "Click-to-lead rate", kind: "percent", higherIsBetter: true, compute: (m) => (m.clicks ? div(m.leads, m.clicks) : null) },
   { key: "conv_rate", inputs: ["conversions", "clicks"], label: "Conversion rate", kind: "percent", higherIsBetter: true, compute: (m) => div(m.conversions, m.clicks) },
 ];
 

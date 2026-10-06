@@ -12,7 +12,7 @@ import { MetricIcon } from "./icons";
 import { AgeChart, CostTrend, Donut, PALETTE, SharePairs, SpendVsOutcome } from "./charts";
 
 /** Figures shown as tiles, in priority order. Cost per 1,000 impressions lives only in the full table. */
-const TILE_PRIORITY = ["revenue", "spend", "roas", "conversions", "cpa", "leads", "cpl", "clicks", "ctr", "conv_rate", "sessions", "impressions", "reach", "followers", "video_views"];
+const TILE_PRIORITY = ["revenue", "spend", "roas", "conversions", "cpa", "leads", "cpl", "clicks", "ctr", "lead_rate", "conv_rate", "sessions", "impressions", "reach", "followers", "video_views"];
 const CHANNEL_COLUMNS = ["spend", "revenue", "roas", "conversions", "cpa", "leads", "cpl", "clicks", "ctr", "impressions", "sessions"];
 const SERIES = PALETTE;
 const COST_KEY: Record<string, string> = { leads: "cpl", conversions: "cpa" };

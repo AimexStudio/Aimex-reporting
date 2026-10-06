@@ -78,12 +78,12 @@ export function ChannelTiles({ m, b, currency, benchmark }: {
   const noun = outcome ? outcomeNoun(outcome) : "";
   const Noun = noun.replace(/^./, (c) => c.toUpperCase());
 
-  type Tile = { key: string; icon: string; label: string; value: string; sub: string; tone?: "brand" | "good" };
+  type Tile = { key: string; icon: string; label: string; value: React.ReactNode; sub: string; tone?: "brand" | "good" };
   const tiles: Tile[] = [];
   if (optScore != null) tiles.push({ key: "opt", icon: "revenue", label: "Optimisation score", value: `${optScore.toFixed(2)}%`, sub: "Campaign quality score from Google", tone: "brand" });
   if (!m.clicks && m.spend != null) tiles.push({ key: "spend", icon: "spend", label: "Amount spent", value: formatMetric("spend", m.spend, currency, { exact: true }), sub: "Total for the reporting period" });
   if (outcome) tiles.push({
-    key: "out", icon: "leads", label: Noun, value: `${n(m[outcome])} ${Noun}`,
+    key: "out", icon: "leads", label: Noun, value: <>{n(m[outcome])}<span className="ml-1.5 text-[0.55em] font-semibold text-ink-2">{noun}</span></>,
     sub: m.clicks ? `${formatPercent(m[outcome] / m.clicks, 2)} of clicks became ${noun}` : outcomeTypes.length ? outcomeTypes.join(", ") : `Total ${noun}`,
   });
   if (cost != null) tiles.push({ key: "cost", icon: "cost", label: `Cost per ${outcomeNoun(outcome!, 1)}`, value: formatMetric("cpl", cost, currency), sub: excluded.length ? `Excludes spend on ${excludedTypes.join(", ").toLowerCase()}` : bench?.text ?? "Average for the month", tone: bench?.good || excluded.length ? "good" : undefined });
@@ -103,12 +103,12 @@ export function ChannelTiles({ m, b, currency, benchmark }: {
   return (
     <section aria-label="Key figures" className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,250px),1fr))] gap-4">
       {tiles.map((t) => (
-        <div key={t.key} className="min-w-0 rounded-2xl bg-surface p-5 ring-1 ring-line">
+        <div key={t.key} className="min-w-0 overflow-hidden rounded-2xl bg-surface p-5 ring-1 ring-line">
           <div className="flex items-start justify-between gap-3">
-            <p className="pt-1 text-xs font-semibold uppercase tracking-wide text-ink-3">{t.label}</p>
+            <p className="min-w-0 break-words pt-1 text-xs font-semibold uppercase tracking-wide text-ink-3">{t.label}</p>
             <span className="grid size-9 shrink-0 place-items-center rounded-xl bg-brand-soft text-brand-strong"><MetricIcon metric={t.icon} className="size-[18px]" /></span>
           </div>
-          <p className={`num mt-1 whitespace-nowrap text-[clamp(1.4rem,0.9rem+1.2vw,2rem)] leading-none ${t.tone === "brand" ? "text-brand-strong" : t.tone === "good" ? "text-good" : "text-ink"}`}>{t.value}</p>
+          <p className={`num mt-1 break-words text-[clamp(1.4rem,0.9rem+1.2vw,2rem)] leading-tight ${t.tone === "brand" ? "text-brand-strong" : t.tone === "good" ? "text-good" : "text-ink"}`}>{t.value}</p>
           <p className={`mt-2 text-sm ${t.key === "out" && m.clicks ? "font-medium text-good" : "text-ink-2"}`}>{t.sub}</p>
         </div>
       ))}
@@ -229,7 +229,7 @@ export function BreakdownTable({ b, currency, channel, month }: { b: Breakdowns;
     ...(outcome ? [c("out", outLabel, (d) => <strong>{formatMetric(outcome, d.m[outcome], currency)}</strong>)] : []),
     ...(!clicks && has("spend") ? [c("spend", "Amount spent", (d) => formatMetric("spend", d.m.spend, currency, { exact: true }))] : []),
     ...(outcome && has("spend") ? [c("cost", clicks ? `Cost per ${outcomeNoun(outcome, 1)}` : "Cost per result", costCell)] : []),
-    ...(outcome && clicks ? [c("cr", "Conv. rate", (d) => d.m.clicks && d.m[outcome] ? <span className="text-good">{formatPercent(d.m[outcome] / d.m.clicks, 2)}</span> : "–")] : []),
+    ...(outcome && clicks ? [c("cr", outcome === "leads" ? "Lead rate" : "Conv. rate", (d) => d.m.clicks && d.m[outcome] ? <span className="text-good">{formatPercent(d.m[outcome] / d.m.clicks, 2)}</span> : "–")] : []),
   ];
   const what = level === "ad set" ? "ad set" : level;
   return (

@@ -32,7 +32,9 @@ export function Donut({ data, format, centerValue, centerLabel, colors }: {
   const rows = data.filter((d) => d.value > 0);
   if (!rows.length) return null;
   return (
-    <div className="grid items-center gap-4 sm:grid-cols-[180px_1fr]">
+    // Lays out by the space this donut actually has (a narrow column stacks the legend under the ring).
+    <div className="@container">
+    <div className="grid items-center gap-4 @[400px]:grid-cols-[180px_minmax(0,1fr)]">
       <div className="relative mx-auto size-[180px]">
         <ResponsiveContainer width="100%" height="100%">
           <PieChart>
@@ -60,6 +62,7 @@ export function Donut({ data, format, centerValue, centerLabel, colors }: {
           </li>
         ))}
       </ul>
+    </div>
     </div>
   );
 }
