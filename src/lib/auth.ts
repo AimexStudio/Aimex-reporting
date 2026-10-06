@@ -36,14 +36,37 @@ export async function getCurrentUser(): Promise<User | null> {
   return user;
 }
 
+/** Aimex super admin only: all clients, logins, the Team page. */
 export async function requireAdmin(): Promise<User> {
   const user = await getCurrentUser();
   if (!user) redirect("/login");
+  if (user.role === "client_admin" && user.clientId) redirect(`/admin/clients/${user.clientId}`);
   if (user.role !== "admin") redirect("/dashboard");
   return user;
 }
 
-/** Returns the client user and the ONLY clientId they may ever see. */
+/** Anyone who may use the admin area at all: super admins and client admins. */
+export async function requireStaff(): Promise<User> {
+  const user = await getCurrentUser();
+  if (!user) redirect("/login");
+  if (user.role === "admin" || (user.role === "client_admin" && user.clientId)) return user;
+  redirect("/dashboard");
+}
+
+/**
+ * May this person manage this client's data (uploads, notes, report settings)?
+ * Super admins: any client. Client admins: only the client they belong to.
+ */
+export async function requireClientAccess(clientId: string): Promise<User> {
+  const user = await requireStaff();
+  if (user.role === "admin") return user;
+  if (user.clientId !== clientId) redirect(`/admin/clients/${user.clientId}`);
+  return user;
+}
+
+export const isSuperAdmin = (u: User | null) => u?.role === "admin";
+
+/** Returns the signed-in viewer or client admin and the ONLY clientId they may ever see. */
 export async function requireClient(): Promise<{ user: User; clientId: string }> {
   const user = await getCurrentUser();
   if (!user) redirect("/login");

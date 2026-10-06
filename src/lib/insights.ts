@@ -142,7 +142,7 @@ const pct = (x: number) => `${Math.round(x * 100)}%`;
 export function insightSentences(b: Breakdowns, metric: string, currency: string): string[] {
   const out: string[] = [];
   const noun = outcomeNoun(metric);
-  const units = b.ads?.length ? b.ads : b.campaigns;
+  const units = (b.ads?.length ?? 0) >= 2 ? b.ads : (b.campaigns?.length ?? 0) >= 2 ? b.campaigns : undefined;
   if (units?.length) {
     const r = rank(units, metric);
     if (r[0]?.outcome > 0) {

@@ -1,19 +1,20 @@
-import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getDashboardData, getDashboards, getOverviewData } from "@/lib/data";
-import { Dashboard } from "./Dashboard";
-import { ReportShell } from "./ReportShell";
+import { signOut } from "@/app/actions";
+import { ReportApp } from "./ReportApp";
 
 /**
  * One client's report: the combined overview (when they have several dashboards)
  * or a single dashboard. `clientId` must come from the session for client users.
  * `view` is "overview", a dashboard id, or undefined for the default.
  */
-export async function ReportPage({ clientId, view, href, banner }: {
+export async function ReportPage({ clientId, view, href, banner, manageHref, showSignOut = true }: {
   clientId: string;
   view?: string;
   href: (view: string) => string;
   banner?: React.ReactNode;
+  manageHref?: string | null;
+  showSignOut?: boolean;
 }) {
   const dashboards = await getDashboards(clientId);
   if (!dashboards.length) notFound();
@@ -22,25 +23,18 @@ export async function ReportPage({ clientId, view, href, banner }: {
   const data = current === "overview" ? await getOverviewData(clientId) : await getDashboardData(clientId, current);
   if (!data) notFound();
 
-  const tabs = multi ? [{ id: "overview", name: "Overview" }, ...dashboards.map((d) => ({ id: d.id, name: d.name }))] : [];
+  const companies = multi
+    ? [{ id: "overview", name: "All companies", href: href("overview") }, ...dashboards.map((d) => ({ id: d.id, name: d.name, href: href(d.id) }))]
+    : [];
   return (
-    <ReportShell
-      clientName={data.client.name}
-      banner={banner}
-      tabs={tabs.length ? (
-        <nav aria-label="Dashboards" className="bg-night">
-          <div className="mx-auto flex max-w-6xl gap-1 overflow-x-auto px-5 pb-0 sm:px-8">
-            {tabs.map((t) => (
-              <Link key={t.id} href={href(t.id)} aria-current={t.id === current ? "page" : undefined}
-                className={`shrink-0 whitespace-nowrap rounded-t-lg px-4 py-2.5 text-sm font-medium ${t.id === current ? "bg-white/10 text-white shadow-[inset_0_-2px_0_var(--color-brand)]" : "text-white/60 hover:text-white"}`}>
-                {t.name}
-              </Link>
-            ))}
-          </div>
-        </nav>
-      ) : null}
-    >
-      <Dashboard key={current} data={data} />
-    </ReportShell>
+    <>
+      {banner && <div className="print:hidden">{banner}</div>}
+      <ReportApp key={current} data={data} companies={companies} currentCompany={current} manageHref={manageHref}
+        signOut={showSignOut ? (
+          <form action={signOut}>
+            <button className="w-full rounded-lg px-3 py-2 text-left text-sm text-white/80 ring-1 ring-white/20 hover:bg-white/10 lg:ring-0">Sign out</button>
+          </form>
+        ) : null} />
+    </>
   );
 }

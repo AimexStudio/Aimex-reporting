@@ -67,6 +67,19 @@ The logo is `public/brand/logo-color.png` and is always shown in brand orange, o
 
 Figures that combine channels (cost per lead, ROAS, CTR, funnel steps) only use the channels that produced them, so Google spend is never divided by Meta leads.
 
+## Full screen and printing
+
+- The report uses the full width of the screen (capped on very wide monitors so it stays readable).
+- **Full screen** in the report header hides the browser's toolbars, for presenting on a TV or projector. It's hidden on phones and on browsers that don't support it (iPhone).
+- **Print** prints the month and dashboard currently on screen, or saves them as a PDF from the print dialog ("Save as PDF" / "Microsoft Print to PDF"). On paper:
+  - the brand colours and dark results band are kept
+  - buttons, tabs and the month picker are left out
+  - every ad and the full "Every number" table are included, even if collapsed on screen
+  - charts are resized to fit A4, and cards aren't split across pages
+  - the footer shows the date it was printed
+
+Pressing Cmd/Ctrl+P also works, but the **Print** button gives the best result because it resizes the charts first.
+
 ## Clients with several companies or streams
 
 A client account can hold several **dashboards**, one per sub-company or stream (for example BRRV I, BRRV II and BRRV Rentals under "BRRV Group"). The client keeps one login.
@@ -76,18 +89,34 @@ A client account can hold several **dashboards**, one per sub-company or stream 
 - In the overview, month-on-month changes are only shown when the same companies have figures in both months; otherwise the report says why they're hidden.
 - Clients created before dashboards existed have their data moved into a first dashboard (named after the client) automatically, the first time they're opened.
 
-## Admins
+## Roles
 
-Open **Team** in the admin top bar to:
+| Role | Who | Can do |
+| --- | --- | --- |
+| **Super admin** | Aimex staff, managed on the **Team** page | Everything: all clients, every client's logins, uploads, notes and settings, and other super admins. |
+| **Admin** (per client) | Someone at the client, added under the client's **Logins** with permission *Admin* | Views their own client's reports, and from **Manage this client's data** uploads CSVs, writes notes, insights and warnings, and edits goals, roadmap, benchmark, planner values and logo, for **their client only**. Can't see other clients, manage logins or delete the client. |
+| **Viewer** (per client) | Added under **Logins** with permission *Viewer* | Views their own client's reports only. |
 
-- see everyone with admin access and when they last signed in
-- **add an admin**: enter their email (and a password, or leave it blank to generate one), then send them the login details shown
-- **remove an admin**: they're signed out immediately. You can't remove yourself or the last admin, so the portal is never locked out
-- **change your own password**: you stay signed in on this device and are signed out everywhere else
+- Each client can have several logins. Super admins add them, change Viewer ↔ Admin, reset passwords and remove them on the client's page. Changing someone's permission signs them out so it applies immediately.
+- Every page and action re-checks permission on the server, so a client admin can't reach another client even by editing a web address or form.
+- If you're ever locked out completely, `npm run setup` recreates the super admin from `ADMIN_EMAIL` and `ADMIN_PASSWORD` in `.env`.
 
-Every admin has full access to all clients. An email address can belong to either an admin or a client, not both.
+## The client report
 
-If you're ever locked out completely, `npm run setup` recreates the admin from `ADMIN_EMAIL` and `ADMIN_PASSWORD` in `.env`.
+The report has a sidebar with the client's logo, the reporting period, a company switcher (for groups) and these sections:
+
+- **Overview:** results band (invested → leads → cost per lead, with the market benchmark), your monthly note and overview insights, figures, funnel, month-by-month charts, results by channel, the project roadmap, and every number.
+- **One page per channel** (e.g. Meta Ads, Google Ads): that channel's own results band, insights and any warning box, its figures, a full campaign / ad set table (status, budget, optimisation score, reach and frequency where the export allows, clicks, CTR, CPC, results, spend, cost per result, conversion rate), and "What worked best".
+- **Goals:** each monthly target with last month vs this month and a progress bar.
+- **ROI planner:** sliders for budget, cost per lead, lead-to-sale rate and average sale value, starting from the month's real figures, with projected leads, sales, sales value and return. Labelled as estimates.
+
+The top bar shows the blended cost per lead and click-to-lead rate, plus **Full screen** and **Print**.
+
+### What admins fill in (client page)
+
+- **Months on file → Insights and warnings:** per month, choose Overview or a channel; write insights one per line (start with "Title:" to make the title bold), and optionally a warning title and details (shown as a red box). Goals entered by hand (like reservations) get their monthly figures here too.
+- **Report settings:** market benchmark range, goals (from an uploaded figure or entered by hand, "at least" or "at most"), roadmap milestones (done, in progress, planned), and ROI planner starting values.
+- **Client logo:** PNG or JPG; it's resized automatically.
 
 ## Monthly workflow
 

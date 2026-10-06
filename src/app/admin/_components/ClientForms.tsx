@@ -12,7 +12,7 @@ const CURRENCIES = ["ZAR", "USD", "GBP", "EUR", "AUD"];
 
 type ClientFields = { id?: string; name?: string; contactName?: string | null; currency?: string; adminNotes?: string | null; email?: string | null };
 
-function Fields({ c }: { c: ClientFields }) {
+function Fields({ c, noEmail }: { c: ClientFields; noEmail?: boolean }) {
   return (
     <>
       <div className="grid gap-4 sm:grid-cols-2">
@@ -20,8 +20,8 @@ function Fields({ c }: { c: ClientFields }) {
           <input className="input" name="name" required defaultValue={c.name} placeholder="Harbour & Vine Wine Co." /></label>
         <label className="field"><span>Contact person</span>
           <input className="input" name="contactName" defaultValue={c.contactName ?? ""} placeholder="Optional" /></label>
-        <label className="field"><span>Login email</span>
-          <input className="input" type="email" name="email" required defaultValue={c.email ?? ""} autoComplete="off" /></label>
+        {!noEmail && <label className="field"><span>First login email</span>
+          <input className="input" type="email" name="email" required defaultValue={c.email ?? ""} autoComplete="off" /></label>}
         <label className="field"><span>Currency</span>
           <select className="input" name="currency" defaultValue={c.currency ?? "ZAR"}>
             {CURRENCIES.map((x) => <option key={x}>{x}</option>)}
@@ -86,7 +86,7 @@ export function EditClientForm({ c }: { c: ClientFields }) {
   return (
     <form action={action} className="grid gap-5">
       <input type="hidden" name="clientId" value={c.id} />
-      <Fields c={c} />
+      <Fields c={c} noEmail />
       <Status s={s} />
       <div><button className="btn" disabled={pending}>{pending ? "Saving…" : "Save changes"}</button></div>
     </form>

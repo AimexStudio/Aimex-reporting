@@ -14,10 +14,12 @@ export async function proxy(req: NextRequest) {
     const url = new URL("/login", req.url);
     return NextResponse.redirect(url);
   }
-  if (pathname.startsWith("/admin") && session.role !== "admin") {
+  // Super admins use /admin; client admins use both (their report, and managing their own client's data);
+  // viewers only see /dashboard. Which client a client admin may manage is checked on every page and action.
+  if (pathname.startsWith("/admin") && session.role === "client") {
     return NextResponse.redirect(new URL("/dashboard", req.url));
   }
-  if (pathname.startsWith("/dashboard") && session.role !== "client") {
+  if (pathname.startsWith("/dashboard") && session.role === "admin") {
     return NextResponse.redirect(new URL("/admin", req.url));
   }
   return NextResponse.next();

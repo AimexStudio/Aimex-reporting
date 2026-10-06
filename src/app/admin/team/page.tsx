@@ -14,14 +14,15 @@ export default async function TeamPage() {
   return (
     <div className="grid grid-cols-1 gap-8 [&>*]:min-w-0">
       <div>
-        <h1 className="text-3xl font-semibold tracking-tight">Team</h1>
+        <h1 className="text-3xl font-semibold tracking-tight">Team: super admins</h1>
         <p className="mt-1 max-w-2xl text-ink-2">
-          Admins can see every client, upload data, and add or remove clients and other admins.
+          Super admins can see every client, upload data, manage every client’s logins, and add or remove other super admins.
+          To give someone access to just one client, add them under that client’s Logins as an Admin instead.
         </p>
       </div>
 
       <section className="rounded-2xl border border-line bg-surface p-6">
-        <h2 className="text-lg font-semibold">Admins</h2>
+        <h2 className="text-lg font-semibold">Super admins</h2>
         <p className="mb-5 mt-0.5 text-sm text-ink-2">
           {admins.length === 1 ? "You’re the only admin." : `${admins.length} people have admin access.`}
         </p>
@@ -55,7 +56,7 @@ export default async function TeamPage() {
       </section>
 
       <section className="rounded-2xl border border-line bg-surface p-6">
-        <h2 className="text-lg font-semibold">Add an admin</h2>
+        <h2 className="text-lg font-semibold">Add a super admin</h2>
         <p className="mb-5 mt-0.5 text-sm text-ink-2">They’ll sign in on the same page as clients and land in this admin area.</p>
         <AddAdminForm />
       </section>

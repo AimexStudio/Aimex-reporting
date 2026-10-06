@@ -6,7 +6,7 @@ export const SESSION_MAX_AGE = 60 * 60 * 24 * 7; // 7 days
 
 export interface SessionPayload {
   uid: string;
-  role: "admin" | "client";
+  role: "admin" | "client_admin" | "client";
   v: number; // sessionVersion at sign-in
 }
 
@@ -31,8 +31,8 @@ export async function verifySession(token: string | undefined): Promise<SessionP
   if (!token) return null;
   try {
     const { payload } = await jwtVerify(token, key(), { algorithms: ["HS256"] });
-    if (!payload.sub || (payload.role !== "admin" && payload.role !== "client")) return null;
-    return { uid: payload.sub, role: payload.role, v: Number(payload.v) };
+    if (!payload.sub || !["admin", "client_admin", "client"].includes(String(payload.role))) return null;
+    return { uid: payload.sub, role: payload.role as SessionPayload["role"], v: Number(payload.v) };
   } catch {
     return null;
   }

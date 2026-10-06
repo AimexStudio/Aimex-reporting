@@ -91,3 +91,34 @@ body { font-family: var(--font-sans); font-feature-settings: "tnum" 1, "ss01" 1;
 
 @keyframes grow { from { transform: scaleX(0); } to { transform: scaleX(1); } }
 .grow { transform-origin: left; animation: grow 900ms cubic-bezier(.2,.7,.2,1) both; }
+
+/* Wide pages never scroll sideways (the admin preview breaks out to full width). */
+body { overflow-x: clip; }
+
+/* ── Print / Save as PDF ───────────────────────────────────────────────
+   The Print button adds .printing first, so the report lays out at a fixed
+   width and the charts re-measure to it; on paper that width is scaled to A4. */
+html.printing .report-root { width: 1000px; margin-inline: auto; display: block; }
+
+@page { size: A4 portrait; margin: 10mm; }
+
+@media print {
+  html, body { background: #fff !important; }
+  /* keep the dark results band, orange highlights and chart colours on paper */
+  * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  *, *::before, *::after { animation: none !important; transition: none !important; }
+  .report-root { width: 1000px !important; zoom: 0.72; margin: 0 !important; min-height: 0 !important; background: #fff; }
+  /* don't split a card or chart across two pages */
+  .report-root section, .report-root details, .report-root dl > div, .report-root li,
+  .report-root .rounded-3xl, .report-root .rounded-2xl, .recharts-wrapper { break-inside: avoid; }
+  .report-root h2, .report-root h3, .report-root h4 { break-after: avoid; }
+  .recharts-tooltip-wrapper { display: none !important; }
+  a[href]::after { content: none !important; }
+}
+
+@media print {
+  /* wide tables shrink to the page instead of being cut off at the edge */
+  .report-root .overflow-x-auto { overflow: visible !important; }
+  .report-root table { min-width: 0 !important; font-size: 11px; }
+  .report-root table th, .report-root table td { padding-left: 4px !important; padding-right: 4px !important; }
+}

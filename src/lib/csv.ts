@@ -291,6 +291,9 @@ export function parseMetricsCsv(text: string, formMonth?: string, defaultChannel
   ) as Record<keyof typeof DIM, string | undefined>;
   type BdMaps = { ads: Map<string, Record<string, number>>; adSets: Map<string, Record<string, number>>; campaigns: Map<string, Record<string, number>>; audiences: Map<string, Record<string, number>> };
   const bdMaps = new Map<string, BdMaps>();
+  type Attr = { delivery?: string; resultType?: string; budget?: number; budgetType?: string; optScore?: number; reach?: number };
+  const rowCounts = new Map<string, number>();
+  const rowAttrs = new Map<string, Attr>();
   const agg = new Map<string, ParsedRow>();
   const rowsPerKey = new Map<string, number>();
   const resultTypes = new Map<string, number>();
@@ -355,15 +358,32 @@ export function parseMetricsCsv(text: string, formMonth?: string, defaultChannel
     const bd = bdMaps.get(key) ?? { ads: new Map(), adSets: new Map(), campaigns: new Map(), audiences: new Map() };
     bdMaps.set(key, bd);
     const additive = Object.entries(rowMetrics).filter(([m]) => !UNIQUE_COUNTS.has(m));
-    const bump = (map: Map<string, Record<string, number>>, label: string) => {
+    const bump = (map: Map<string, Record<string, number>>, label: string, kind?: string) => {
       if (!label) return;
       const cur = map.get(label) ?? {};
       for (const [m, v] of additive) cur[m] = (cur[m] ?? 0) + v;
       map.set(label, cur);
+      if (kind) {
+        // Remember the first line's details; they're only shown if this label has exactly one line.
+        const k = `${key}|${kind}|${label}`;
+        rowCounts.set(k, (rowCounts.get(k) ?? 0) + 1);
+        if (!rowAttrs.has(k)) {
+          const pick = (names: string[]) => names.map((n) => (r[n] ?? "").trim()).find((v) => v && !isBlank(v));
+          const reach = parseNumber(r["reach"]);
+          rowAttrs.set(k, {
+            delivery: pick(["delivery_status", "delivery", "campaign_status", "ad_set_delivery", "status"]),
+            resultType: (resultTypeCol ? r[resultTypeCol]?.trim() : undefined) || undefined,
+            budget: parseNumber(pick(["budget", "ad_set_budget", "daily_budget", "campaign_budget"]) ?? "") ?? undefined,
+            budgetType: pick(["budget_type", "ad_set_budget_type"]),
+            optScore: parseNumber(pick(["optimisation_score", "optimization_score"]) ?? "") ?? undefined,
+            reach: reach ?? undefined,
+          });
+        }
+      }
     };
-    if (dimCol.ads) bump(bd.ads, (r[dimCol.ads] ?? "").trim());
-    if (dimCol.adSets) bump(bd.adSets, (r[dimCol.adSets] ?? "").trim().replace(/\s+/g, " "));
-    if (dimCol.campaigns) bump(bd.campaigns, (r[dimCol.campaigns] ?? "").trim().replace(/\s+/g, " "));
+    if (dimCol.ads) bump(bd.ads, (r[dimCol.ads] ?? "").trim(), "ads");
+    if (dimCol.adSets) bump(bd.adSets, (r[dimCol.adSets] ?? "").trim().replace(/\s+/g, " "), "adSets");
+    if (dimCol.campaigns) bump(bd.campaigns, (r[dimCol.campaigns] ?? "").trim().replace(/\s+/g, " "), "campaigns");
     if (dimCol.age || dimCol.gender) {
       const age = (dimCol.age ? r[dimCol.age] : "")?.trim() || "All ages";
       const gender = (dimCol.gender ? r[dimCol.gender] : "")?.trim().toLowerCase() || "all";
@@ -431,15 +451,27 @@ export function parseMetricsCsv(text: string, formMonth?: string, defaultChannel
     }
     info.push("Conversions are counted as leads, as chosen for this file.");
   }
-  const toRows = (m: Map<string, Record<string, number>>) =>
-    m.size >= 2 ? [...m].map(([label, metrics]) => ({ label, metrics })).sort((a, b) => (b.metrics.spend ?? 0) - (a.metrics.spend ?? 0)).slice(0, 50) : undefined;
+  const toRows = (m: Map<string, Record<string, number>>, key: string, kind: string, minRows = 2) =>
+    m.size >= minRows
+      ? [...m].map(([label, metrics]) => {
+          const k = `${key}|${kind}|${label}`;
+          const single = rowCounts.get(k) === 1;
+          const a = rowAttrs.get(k) ?? {};
+          const { reach, ...rest } = a;
+          const attrs = Object.fromEntries(Object.entries(single ? rest : { delivery: a.delivery }).filter(([, v]) => v !== undefined && v !== ""));
+          // reach can only be shown when the export has one line for this row
+          const withReach = single && reach != null ? { ...metrics, reach } : metrics;
+          return { label, metrics: withReach, ...(Object.keys(attrs).length ? { attrs } : {}) };
+        }).sort((a, b) => (b.metrics.spend ?? 0) - (a.metrics.spend ?? 0)).slice(0, 50)
+      : undefined;
   const breakdowns: Record<string, Breakdowns> = {};
   const kept = new Set<string>();
   for (const [key, bd] of bdMaps) {
     const audiences = bd.audiences.size >= 2
       ? [...bd.audiences].map(([k, metrics]) => { const [age, gender] = k.split("|"); return { age, gender, metrics }; }).slice(0, 60)
       : undefined;
-    const b: Breakdowns = { ads: toRows(bd.ads), adSets: toRows(bd.adSets), campaigns: toRows(bd.campaigns), audiences };
+    // Campaigns are kept even when there's only one, so the channel page can show its full row.
+    const b: Breakdowns = { ads: toRows(bd.ads, key, "ads"), adSets: toRows(bd.adSets, key, "adSets", 1), campaigns: toRows(bd.campaigns, key, "campaigns", 1), audiences };
     if (b.ads) kept.add("ads");
     if (b.adSets) kept.add("ad sets");
     if (b.campaigns) kept.add("campaigns");

@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { Bar, BarChart, CartesianGrid, Cell, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
-import type { DashboardData, MonthData } from "@/lib/data";
+import type { MonthData } from "@/lib/data";
 import type { Breakdowns } from "@/db/types";
 import { DERIVED_METRICS, formatMetric, formatPercent, metricDef, monthLabel, pctChange } from "@/lib/metrics";
 import {
@@ -17,23 +17,46 @@ const CHANNEL_COLUMNS = ["spend", "revenue", "roas", "conversions", "cpa", "lead
 const SERIES = PALETTE;
 const COST_KEY: Record<string, string> = { leads: "cpl", conversions: "cpa" };
 
-export function Dashboard({ data }: { data: DashboardData }) {
-  const { months, client } = data;
-  const cur = client.currency;
-  const [selected, setSelected] = useState(months.at(-1)?.month ?? "");
+export interface BodySlots {
+  /** Shown right under the results band (e.g. written insights and warnings). */
+  afterHero?: React.ReactNode;
+  /** Shown after the figure tiles (e.g. the campaign table on a channel page). */
+  afterTiles?: React.ReactNode;
+  /** Shown before the full numbers table (e.g. the roadmap). */
+  beforeNumbers?: React.ReactNode;
+}
+
+/**
+ * The report for one scope: the whole dashboard (overview) or a single channel.
+ * `months` are already scoped; `selected` is the month on screen.
+ */
+export function ReportBody({ months, currency, selected, onSelect, scopeName, unit, showWorked, slots, benchmark }: {
+  months: MonthData[];
+  currency: string;
+  selected: string;
+  onSelect: (m: string) => void;
+  scopeName: string | null;
+  unit: "channel" | "company";
+  showWorked: boolean;
+  slots?: BodySlots;
+  benchmark?: Benchmark | null;
+}) {
   const idx = months.findIndex((m) => m.month === selected);
   const month = months[idx];
-  // In the overview, a month whose set of companies differs from last month isn't compared.
+  // A month whose set of companies differs from last month isn't compared (group overview).
   const prev = idx > 0 && !months[idx]?.compareNote ? months[idx - 1] : undefined;
 
   if (!month) {
     return (
       <section className="bg-night text-white">
-        <div className="mx-auto max-w-6xl px-5 py-16 sm:px-8">
-          <h2 className="brand-h text-white/70">Your <strong className="text-white">report</strong></h2>
-          <p className="mt-4 max-w-xl text-headline font-medium">Your first report is on its way.</p>
+        <div className="mx-auto w-full max-w-[1600px] px-5 sm:px-8 lg:px-12 py-16">
+          {scopeName && <p className="mb-1 text-lg font-semibold">{scopeName}</p>}
+          <h2 className="brand-h text-white/70">{selected ? `${monthLabel(selected)} ` : "Your "}<strong className="text-white">report</strong></h2>
+          <p className="mt-4 max-w-xl text-headline font-medium">{months.length ? "No figures for this month." : "Your first report is on its way."}</p>
           <p className="mt-3 max-w-prose text-white/70">
-            Aimex Studio hasn’t uploaded any results yet. Once your first month is in, you’ll see what your marketing delivered here.
+            {months.length
+              ? "Choose another month, or check back once this month’s results are uploaded."
+              : "Aimex Studio hasn’t uploaded any results yet. Once your first month is in, you’ll see what your marketing delivered here."}
           </p>
         </div>
       </section>
@@ -46,21 +69,36 @@ export function Dashboard({ data }: { data: DashboardData }) {
 
   return (
     <>
-      <Hero months={months} month={month} prev={prev} outcome={outcome} currency={cur} onMonth={setSelected}
-        scopeName={data.scope.kind === "overview" ? "All companies" : data.scope.name !== client.name ? data.scope.name : null} />
-      <main className="mx-auto grid max-w-6xl grid-cols-1 gap-12 px-5 py-12 sm:px-8">
-        <Tiles months={months} idx={idx} prev={prev} exclude={equationKeys} currency={cur} />
-        {outcome && month.channels.some((c) => (c.metrics[outcome] ?? 0) > 0 && c.metrics.impressions) ? <Funnel month={month} outcome={outcome} currency={cur} /> : null}
-        {breakdowns.length > 0 && outcome && (
-          <WhatWorked items={breakdowns} metric={outcome} currency={cur} showChannel={breakdowns.length > 1} />
+      <Hero months={months} month={month} prev={prev} outcome={outcome} currency={currency} onMonth={onSelect} scopeName={scopeName} benchmark={benchmark} />
+      <main className="mx-auto w-full max-w-[1600px] px-5 sm:px-8 lg:px-12 grid grid-cols-1 gap-12 py-12 print:gap-8 print:py-8">
+        {slots?.afterHero}
+        <Tiles months={months} idx={idx} prev={prev} exclude={equationKeys} currency={currency} />
+        {slots?.afterTiles}
+        {outcome && month.channels.some((c) => (c.metrics[outcome] ?? 0) > 0 && c.metrics.impressions) ? <Funnel month={month} outcome={outcome} currency={currency} /> : null}
+        {showWorked && breakdowns.length > 0 && outcome && (
+          <WhatWorked items={breakdowns} metric={outcome} currency={currency} showChannel={breakdowns.length > 1} />
         )}
-        {months.length >= 2 && outcome && month.totals.spend != null && <MoneyOverTime months={months} outcome={outcome} currency={cur} />}
-        {months.length >= 2 && <Trend months={months} selected={selected} onSelect={setSelected} currency={cur} defaultMetric={outcome ?? "spend"} />}
-        {month.channels.length >= 2 && <Channels month={month} prev={prev} currency={cur} unit={data.scope.kind === "overview" ? "company" : "channel"} />}
-        <AllNumbers month={month} prev={prev} currency={cur} />
+        {months.length >= 2 && outcome && month.totals.spend != null && <MoneyOverTime months={months} outcome={outcome} currency={currency} />}
+        {months.length >= 2 && <Trend months={months} selected={selected} onSelect={onSelect} currency={currency} defaultMetric={outcome ?? "spend"} />}
+        {month.channels.length >= 2 && <Channels month={month} prev={prev} currency={currency} unit={unit} />}
+        {slots?.beforeNumbers}
+        <AllNumbers month={month} prev={prev} currency={currency} />
       </main>
     </>
   );
+}
+
+export interface Benchmark { min: number | null; max: number | null; label: string }
+
+/** "Below the R 120–R 200 market range" style comparison of a cost per result. */
+export function benchmarkText(cost: number, b: Benchmark | null | undefined, currency: string): { text: string; good: boolean | null } | null {
+  if (!b || (b.min == null && b.max == null) || !Number.isFinite(cost)) return null;
+  const f = (v: number) => formatMetric("cpl", v, currency).replace(/\.00$/, "");
+  const range = b.min != null && b.max != null ? `${f(b.min)}–${f(b.max)}` : b.max != null ? `up to ${f(b.max)}` : `from ${f(b.min!)}`;
+  const label = b.label ? ` ${b.label}` : "";
+  if (b.min != null && cost < b.min) return { text: `Below the ${range}${label} range`, good: true };
+  if (b.max != null && cost > b.max) return { text: `Above the ${range}${label} range`, good: false };
+  return { text: `Within the ${range}${label} range`, good: null };
 }
 
 /* ================= hero: was it worth it? ================= */
@@ -72,16 +110,16 @@ function equationMetrics(m: MonthData, outcome: string | null): string[] {
   return [];
 }
 
-function Hero({ months, month, prev, outcome, currency, onMonth, scopeName }: {
+function Hero({ months, month, prev, outcome, currency, onMonth, scopeName, benchmark }: {
   months: MonthData[]; month: MonthData; prev?: MonthData; outcome: string | null; currency: string; onMonth: (m: string) => void;
-  scopeName: string | null;
+  scopeName: string | null; benchmark?: Benchmark | null;
 }) {
   const t = month.totals;
   const [name, year] = monthLabel(month.month).split(" ");
   return (
     <section className="relative overflow-hidden bg-night text-white" aria-labelledby="hero-heading">
       <div aria-hidden="true" className="pointer-events-none absolute -right-40 -top-40 size-[520px] rounded-full bg-brand/10 blur-3xl" />
-      <div className="relative mx-auto max-w-6xl px-5 pb-12 pt-10 sm:px-8 sm:pb-14">
+      <div className="relative mx-auto w-full max-w-[1600px] px-5 sm:px-8 lg:px-12 pb-12 pt-10 sm:pb-14">
         <div className="flex flex-wrap items-center justify-between gap-4">
           <div>
             {scopeName && <p className="mb-1 text-lg font-semibold text-white">{scopeName}</p>}
@@ -103,7 +141,7 @@ function Hero({ months, month, prev, outcome, currency, onMonth, scopeName }: {
         {t.spend && t.revenue ? (
           <RevenueEquation month={month} prev={prev} currency={currency} />
         ) : t.spend && outcome ? (
-          <OutcomeEquation month={month} prev={prev} outcome={outcome} currency={currency} />
+          <OutcomeEquation month={month} prev={prev} outcome={outcome} currency={currency} benchmark={benchmark} />
         ) : null}
 
         {month.note && (
@@ -131,7 +169,7 @@ function Step({ label, value, sub, change, last }: { label: string; value: strin
   );
 }
 
-function OutcomeEquation({ month, prev, outcome, currency }: { month: MonthData; prev?: MonthData; outcome: string; currency: string }) {
+function OutcomeEquation({ month, prev, outcome, currency, benchmark }: { month: MonthData; prev?: MonthData; outcome: string; currency: string; benchmark?: Benchmark | null }) {
   const t = month.totals;
   const costKey = COST_KEY[outcome];
   const cost = costKey ? t[costKey] : t.spend / t[outcome];
@@ -142,7 +180,8 @@ function OutcomeEquation({ month, prev, outcome, currency }: { month: MonthData;
         change={<Change change={pctChange(t.spend, prev?.totals.spend)} higherIsBetter={null} tone="dark" />} />
       <Step label="You received" value={formatMetric(outcome, t[outcome], currency)} sub={noun}
         change={<Change change={pctChange(t[outcome], prev?.totals[outcome])} higherIsBetter tone="dark" />} />
-      <Step last label={`Each ${outcomeNoun(outcome, 1)} cost`} value={formatMetric("cpl", cost, currency)} sub="on average"
+      <Step last label={`Each ${outcomeNoun(outcome, 1)} cost`} value={formatMetric("cpl", cost, currency)}
+        sub={(() => { const b = benchmarkText(cost, benchmark, currency); return b ? `on average. ${b.text}` : "on average"; })()}
         change={<Change change={pctChange(cost, prev && prev.totals[outcome] ? (costKey ? prev.totals[costKey] : prev.totals.spend / prev.totals[outcome]) : undefined)} higherIsBetter={false} tone="dark" />} />
     </div>
   );
@@ -182,7 +221,7 @@ function MonthPicker({ months, value, onChange }: { months: MonthData[]; value: 
   const btn = "grid size-9 place-items-center rounded-lg text-white/80 ring-1 ring-white/20 hover:bg-white/10 disabled:opacity-30";
   if (months.length < 2) return null;
   return (
-    <div className="flex items-center gap-1.5">
+    <div className="flex items-center gap-1.5 print:hidden">
       <button className={btn} aria-label="Previous month" disabled={i <= 0} onClick={() => onChange(months[i - 1].month)}>‹</button>
       <select className="rounded-lg bg-white/10 px-3 py-2 text-sm text-white ring-1 ring-white/20 [&>option]:text-ink"
         value={value} onChange={(e) => onChange(e.target.value)} aria-label="Month">
@@ -195,7 +234,7 @@ function MonthPicker({ months, value, onChange }: { months: MonthData[]; value: 
 
 /* ================= shared bits ================= */
 
-function SectionHead({ light, bold, lead }: { light: string; bold: string; lead?: string }) {
+export function SectionHead({ light, bold, lead }: { light: string; bold: string; lead?: string }) {
   return (
     <div className="mb-5">
       <h3 className="brand-h text-ink">{light} <strong>{bold}</strong></h3>
@@ -204,7 +243,7 @@ function SectionHead({ light, bold, lead }: { light: string; bold: string; lead?
   );
 }
 
-function Change({ change, higherIsBetter, tone = "light", suffix }: { change: number | null; higherIsBetter: boolean | null; tone?: "light" | "dark"; suffix?: string }) {
+export function Change({ change, higherIsBetter, tone = "light", suffix }: { change: number | null; higherIsBetter: boolean | null; tone?: "light" | "dark"; suffix?: string }) {
   if (change == null || !Number.isFinite(change)) return null;
   if (Math.abs(change) < 0.005) return <span className={`text-sm ${tone === "dark" ? "text-white/50" : "text-ink-3"}`}>No change</span>;
   const good = higherIsBetter == null ? null : change > 0 === higherIsBetter;
@@ -247,7 +286,7 @@ function Tiles({ months, idx, prev, exclude, currency }: { months: MonthData[]; 
     <section aria-labelledby="tiles-heading">
       <h3 id="tiles-heading" className="sr-only">Key figures</h3>
       <SectionHead light="The" bold="numbers" />
-      <dl className="grid grid-cols-2 gap-3 md:grid-cols-3">
+      <dl className="grid grid-cols-2 gap-3 md:grid-cols-3 2xl:grid-cols-6">
         {keys.map((k) => {
           const def = metricDef(k);
           const series = months.slice(Math.max(0, idx - 11), idx + 1).map((m) => m.totals[k]);
@@ -262,7 +301,7 @@ function Tiles({ months, idx, prev, exclude, currency }: { months: MonthData[]; 
                 {def.label}
               </dt>
               <dd className="num mt-3 text-[1.75rem] leading-none text-ink">{formatMetric(k, month.totals[k], currency, { compact: true })}</dd>
-              {partial && <dd className="mt-1 text-xs text-ink-3">{from.join(" and ")} only</dd>}
+              {partial && <dd className="mt-1 text-xs text-ink-3">From {from.join(" and ")}</dd>}
               <dd className="mt-3 flex min-h-6 items-center justify-between gap-2">
                 <Change change={pctChange(month.totals[k], prev?.totals[k])} higherIsBetter={def.higherIsBetter} suffix="" />
                 <Sparkline values={series} />
@@ -332,7 +371,7 @@ function Funnel({ month, outcome, currency }: { month: MonthData; outcome: strin
 
 /* ================= what worked best ================= */
 
-function WhatWorked({ items, metric, currency, showChannel }: { items: { channel: string; b: Breakdowns }[]; metric: string; currency: string; showChannel: boolean }) {
+export function WhatWorked({ items, metric, currency, showChannel }: { items: { channel: string; b: Breakdowns }[]; metric: string; currency: string; showChannel: boolean }) {
   return (
     <section aria-labelledby="worked-heading" className="grid min-w-0 grid-cols-1 gap-6">
       <div id="worked-heading">
@@ -344,7 +383,7 @@ function WhatWorked({ items, metric, currency, showChannel }: { items: { channel
           <Insights lines={insightSentences(b, metric, currency)} />
           <MoneyWent b={b} metric={metric} />
           <div className="grid min-w-0 grid-cols-1 gap-6 lg:grid-cols-5">
-            {(b.ads ?? b.campaigns) && (
+            {(b.ads ?? ((b.campaigns?.length ?? 0) >= 2 ? b.campaigns : undefined)) && (
               <div className="lg:col-span-3"><TopAds rows={(b.ads ?? b.campaigns)!} metric={metric} currency={currency} unit={b.ads ? "ad" : "campaign"} /></div>
             )}
             {b.adSets && b.adSets.length >= 2 && (
@@ -372,7 +411,7 @@ function Insights({ lines }: { lines: string[] }) {
   );
 }
 
-function Badge({ children, tone }: { children: React.ReactNode; tone: "brand" | "good" }) {
+export function Badge({ children, tone }: { children: React.ReactNode; tone: "brand" | "good" }) {
   return (
     <span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${tone === "brand" ? "bg-night text-brand" : "bg-good-soft text-good"}`}>{children}</span>
   );
@@ -383,7 +422,7 @@ function TopAds({ rows, metric, currency, unit = "ad" }: { rows: NonNullable<Bre
   const best = bestValue(ranked);
   const max = Math.max(1, ...ranked.map((r) => r.outcome));
   const [all, setAll] = useState(false);
-  const shown = all ? ranked : ranked.slice(0, 5);
+  const shown = ranked; // extras are hidden on screen until expanded, but always printed
   const noun = outcomeNoun(metric);
   return (
     <div className="h-full rounded-3xl bg-surface p-6 ring-1 ring-line">
@@ -391,7 +430,7 @@ function TopAds({ rows, metric, currency, unit = "ad" }: { rows: NonNullable<Bre
       <p className="mt-0.5 text-sm text-ink-3">Ranked by {noun}, with what each one cost</p>
       <ol className="mt-5 grid gap-4">
         {shown.map((r, i) => (
-          <li key={r.key}>
+          <li key={r.key} className={!all && i >= 5 ? "hidden print:block" : undefined}>
             <div className="flex flex-wrap items-center gap-2">
               <span className="num w-5 text-ink-3">{i + 1}</span>
               <span className="font-medium">{r.label}</span>
@@ -412,7 +451,7 @@ function TopAds({ rows, metric, currency, unit = "ad" }: { rows: NonNullable<Bre
         ))}
       </ol>
       {ranked.length > 5 && (
-        <button className="mt-4 text-sm font-medium text-brand-strong hover:underline" onClick={() => setAll(!all)}>
+        <button className="mt-4 text-sm font-medium text-brand-strong hover:underline print:hidden" onClick={() => setAll(!all)}>
           {all ? `Show fewer ${unit}s` : `Show all ${ranked.length} ${unit}s`}
         </button>
       )}
@@ -625,9 +664,10 @@ function Trend({ months, selected, onSelect, currency, defaultMetric }: {
     <section aria-labelledby="trend-heading" className="rounded-3xl bg-surface p-6 ring-1 ring-line sm:p-8">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div id="trend-heading"><SectionHead light="Month by" bold="month" lead="Select a bar to see that month." /></div>
-        <select className="input w-auto py-1.5 text-sm" value={metric} onChange={(e) => setMetric(e.target.value)} aria-label="Measure shown in chart">
+        <select className="input w-auto py-1.5 text-sm print:hidden" value={metric} onChange={(e) => setMetric(e.target.value)} aria-label="Measure shown in chart">
           {keys.map((k) => <option key={k} value={k}>{metricDef(k).label}</option>)}
         </select>
+        <p className="hidden text-sm font-semibold print:block">{metricDef(metric).label}</p>
       </div>
       <div className="h-72 w-full">
         <ResponsiveContainer width="100%" height="100%">

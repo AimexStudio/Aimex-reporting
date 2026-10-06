@@ -1,6 +1,9 @@
 import "server-only";
 import crypto from "node:crypto";
-import { db, type Breakdowns, type ChannelEntry, type Client, type DashboardDoc, type ImportDoc, type MonthDoc, type User } from "@/db";
+import {
+  db, type Breakdowns, type ChannelEntry, type Client, type DashboardDoc, type DashboardSettings, type ImportDoc,
+  type MonthDoc, type SectionNotes, type User,
+} from "@/db";
 import { deriveTotals, monthLabel, withDerived } from "./metrics";
 import type { ParsedRow } from "./csv";
 
@@ -39,10 +42,43 @@ export async function findUserByEmail(email: string): Promise<User | null> {
   return getUser((idx.data() as { userId: string }).userId);
 }
 
+/** The client's first login, used where one contact email is shown (e.g. the clients list). */
 export async function getClientLogin(clientId: string): Promise<User | null> {
-  const q = await usersCol().where("clientId", "==", clientId).limit(1).get();
-  const d = q.docs[0];
-  return d ? ({ ...(d.data() as Omit<User, "id">), id: d.id }) : null;
+  return (await listClientUsers(clientId))[0] ?? null;
+}
+
+/** Every login that belongs to a client (viewers and client admins), oldest first. */
+export async function listClientUsers(clientId: string): Promise<User[]> {
+  const q = await usersCol().where("clientId", "==", clientId).get();
+  return q.docs.map((d) => ({ ...(d.data() as Omit<User, "id">), id: d.id })).sort((a, b) => a.createdAt - b.createdAt);
+}
+
+export async function addClientUser(clientId: string, email: string, passwordHash: string, role: "client" | "client_admin"): Promise<User> {
+  const id = newId();
+  const user: Omit<User, "id"> = { email, passwordHash, role, clientId, sessionVersion: 1, lastLoginAt: null, createdAt: now() };
+  await db.runTransaction(async (tx) => {
+    const eRef = emailRef(email);
+    if ((await tx.get(eRef)).exists) throw new EmailTakenError(email);
+    tx.set(usersCol().doc(id), user);
+    tx.set(eRef, { userId: id });
+  });
+  return { ...user, id };
+}
+
+/** Changes a client login between viewer and client admin. Signs them out so the new permission applies at once. */
+export async function setClientUserRole(clientId: string, userId: string, role: "client" | "client_admin") {
+  const u = await getUser(userId);
+  if (!u || u.clientId !== clientId || u.role === "admin") throw new Error("That login doesn’t belong to this client.");
+  await usersCol().doc(userId).update({ role, sessionVersion: (u.sessionVersion ?? 1) + 1 });
+}
+
+export async function removeClientUser(clientId: string, userId: string) {
+  const u = await getUser(userId);
+  if (!u || u.clientId !== clientId || u.role === "admin") throw new Error("That login doesn’t belong to this client.");
+  await db.runTransaction(async (tx) => {
+    tx.delete(usersCol().doc(userId));
+    tx.delete(emailRef(u.email));
+  });
 }
 
 export async function touchLogin(userId: string) {
@@ -167,6 +203,14 @@ export async function createClientWithLogin(
   return { ...client, id: clientId };
 }
 
+export async function updateClientFields(id: string, fields: Omit<Client, "id" | "createdAt" | "logo">) {
+  await clientsCol().doc(id).update({ ...fields });
+}
+
+export async function setClientLogo(id: string, logo: string | null) {
+  await clientsCol().doc(id).update({ logo });
+}
+
 export async function updateClientAndEmail(id: string, fields: Omit<Client, "id" | "createdAt">, email: string) {
   const login = await getClientLogin(id);
   await db.runTransaction(async (tx) => {
@@ -272,6 +316,12 @@ export async function renameDashboard(clientId: string, dashId: string, name: st
   await dashCol(clientId).doc(dashId).update({ name });
 }
 
+export async function saveDashboardSettings(clientId: string, dashId: string, settings: DashboardSettings) {
+  if (!(await getDashboard(clientId, dashId))) throw new Error("That dashboard no longer exists.");
+  const clean = Object.fromEntries(Object.entries(settings).filter(([, v]) => v !== undefined));
+  await dashCol(clientId).doc(dashId).update(clean);
+}
+
 /** Deletes a dashboard and all its months, notes and upload history. Refuses to delete the last one. */
 export async function deleteDashboard(clientId: string, dashId: string) {
   const all = await getDashboards(clientId);
@@ -288,12 +338,16 @@ export interface MonthData {
   /** raw = the stored base figures, before rates are added */
   channels: { channel: string; metrics: Record<string, number>; breakdowns: Breakdowns | null; raw: Record<string, number> }[];
   note: string | null;
+  sectionNotes: Record<string, SectionNotes>;
+  goalActuals: Record<string, number>;
   /** Set when this month can't be fairly compared with the previous one (overview only). */
   compareNote?: string;
 }
 
 export interface DashboardData {
-  client: { id: string; name: string; currency: string };
+  client: { id: string; name: string; currency: string; logo: string | null };
+  /** Goals, milestones, benchmark and planner defaults (single dashboards only). */
+  settings: DashboardSettings;
   /** Which dashboard this is, or the combined overview. */
   scope: { kind: "dashboard"; id: string; name: string } | { kind: "overview"; name: string };
   months: MonthData[]; // oldest -> newest
@@ -309,8 +363,10 @@ export async function getDashboardData(clientId: string, dashId: string): Promis
   const dash = await getDashboard(clientId, dashId);
   if (!dash) return null;
   const months = await loadMonths(clientId, dashId);
+  const { id: _i, name: _n, createdAt: _c, ...settings } = dash;
   return {
-    client: { id: client.id, name: client.name, currency: client.currency },
+    client: { id: client.id, name: client.name, currency: client.currency, logo: client.logo ?? null },
+    settings,
     scope: { kind: "dashboard", id: dash.id, name: dash.name },
     months,
   };
@@ -342,7 +398,7 @@ export async function getOverviewData(clientId: string): Promise<DashboardData |
       .sort((a, b) => (b.metrics.spend ?? 0) - (a.metrics.spend ?? 0));
     // Rates across companies use each company's scoped channels, so mixed channel sets stay honest.
     const scopedChannels = perDash.flatMap(({ months }) => months.find((x) => x.month === month)?.channels.map((c) => c.raw) ?? []);
-    return { month, totals: deriveTotals(scopedChannels), channels, note: null };
+    return { month, totals: deriveTotals(scopedChannels), channels, note: null, sectionNotes: {}, goalActuals: {} };
   });
   // Month-on-month changes are only fair when the same companies have data in both months.
   months.forEach((m, i) => {
@@ -359,7 +415,8 @@ export async function getOverviewData(clientId: string): Promise<DashboardData |
     }
   });
   return {
-    client: { id: client.id, name: client.name, currency: client.currency },
+    client: { id: client.id, name: client.name, currency: client.currency, logo: client.logo ?? null },
+    settings: {},
     scope: { kind: "overview", name: "All companies" },
     months,
   };
@@ -375,7 +432,7 @@ async function loadMonths(clientId: string, dashId: string): Promise<MonthData[]
       const channels = m.channels.map((c) => ({ channel: c.channel, metrics: withDerived(c.metrics), breakdowns: c.breakdowns ?? null, raw: c.metrics }));
       const totals = deriveTotals(m.channels.map((c) => c.metrics));
       channels.sort((a, b) => (b.metrics.spend ?? 0) - (a.metrics.spend ?? 0) || a.channel.localeCompare(b.channel));
-      return { month: m.month, totals, channels, note: m.note ?? null };
+      return { month: m.month, totals, channels, note: m.note ?? null, sectionNotes: m.sectionNotes ?? {}, goalActuals: m.goalActuals ?? {} };
     });
 }
 
@@ -444,6 +501,30 @@ export async function saveMonthNote(clientId: string, dashId: string, month: str
   const s = await ref.get();
   if (!s.exists) return false; // notes belong to months that have data
   await ref.update({ note: body, updatedAt: now() });
+  return true;
+}
+
+/** Saves (or clears, with null) the written insights and warning for one section of one month. */
+export async function saveSectionNotes(clientId: string, dashId: string, month: string, section: string, notes: SectionNotes | null) {
+  if (!(await getDashboard(clientId, dashId))) return false;
+  const ref = monthsCol(clientId, dashId).doc(month);
+  return db.runTransaction(async (tx) => {
+    const s = await tx.get(ref);
+    if (!s.exists) return false;
+    const all = { ...((s.data() as MonthDoc).sectionNotes ?? {}) };
+    if (notes) all[section] = notes;
+    else delete all[section];
+    tx.update(ref, { sectionNotes: all, updatedAt: now() });
+    return true;
+  });
+}
+
+export async function saveGoalActuals(clientId: string, dashId: string, month: string, actuals: Record<string, number>) {
+  if (!(await getDashboard(clientId, dashId))) return false;
+  const ref = monthsCol(clientId, dashId).doc(month);
+  const s = await ref.get();
+  if (!s.exists) return false;
+  await ref.update({ goalActuals: actuals, updatedAt: now() });
   return true;
 }
 
