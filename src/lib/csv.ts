@@ -439,6 +439,11 @@ export function parseMetricsCsv(text: string, formMonth?: string, defaultChannel
   for (const bd of bdMaps.values()) for (const map of Object.values(bd)) for (const m of map.values()) for (const k in m) m[k] = round(m[k]);
   if (rows.length === 0 && errors.length === 0) errors.push("No numbers found in the file.");
 
+  // Refuse the downloadable template's example figures, which would replace a client's real numbers.
+  if (rows.length && !checkingTemplate && sameFigures(rows, templateRows())) {
+    errors.push("This is the unchanged example template. Replace the example numbers with the client’s real figures before importing.");
+  }
+
   // A revenue column that is all zero means conversion values aren't tracked (Google Ads
   // always includes "Conv. value"). Saving R 0 would show a 0× return, so leave it out.
   const zeroRevenue = new Set<string>();
@@ -508,6 +513,23 @@ export function parseMetricsCsv(text: string, formMonth?: string, defaultChannel
 function labelFor(metric: string) {
   const m = BASE_METRICS.find((b) => b.key === metric);
   return (m?.label ?? metric.replace(/_/g, " ")).toLowerCase();
+}
+
+function sameFigures(a: ParsedRow[], b: ParsedRow[]) {
+  if (!b.length || a.length !== b.length) return false;
+  const key = (r: ParsedRow) => `${r.month}|${r.channel}|${r.metric}|${r.value}`;
+  const set = new Set(b.map(key));
+  return a.every((r) => set.has(key(r)));
+}
+
+let checkingTemplate = false;
+let cachedTemplate: ParsedRow[] | null = null;
+function templateRows(): ParsedRow[] {
+  if (!cachedTemplate) {
+    checkingTemplate = true;
+    try { cachedTemplate = parseMetricsCsv(CSV_TEMPLATE, "2026-09").rows; } finally { checkingTemplate = false; }
+  }
+  return cachedTemplate;
 }
 
 export const CSV_TEMPLATE = `month,channel,spend,impressions,clicks,conversions,revenue,leads,sessions

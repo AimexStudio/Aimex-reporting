@@ -167,8 +167,10 @@ export default async function ClientAdminPage({ params, searchParams }: {
           {imports.length === 0 ? <p className="text-ink-2">No uploads yet.</p> : (
             <ul className="grid gap-2 text-sm">
               {imports.map((i) => (
-                <li key={i.id} className="flex justify-between gap-4">
-                  <span className="truncate">{i.filename ?? i.source} <span className="text-ink-3">({i.channels.join(", ")}, {i.months.map((m) => monthLabel(m, "short")).join(", ")})</span></span>
+                <li key={i.id} className="flex min-w-0 items-baseline justify-between gap-4">
+                  <span className="min-w-0 flex-1 truncate" title={`${i.filename ?? i.source} (${i.channels.join(", ")}, ${i.months.map((m) => monthLabel(m, "short")).join(", ")})`}>
+                    {i.filename ?? i.source} <span className="text-ink-3">({i.channels.join(", ")}, {i.months.map((m) => monthLabel(m, "short")).join(", ")})</span>
+                  </span>
                   <span className="shrink-0 text-ink-3">{new Date(i.importedAt).toLocaleDateString("en-ZA", { day: "numeric", month: "short", year: "numeric" })}</span>
                 </li>
               ))}
@@ -188,7 +190,7 @@ export default async function ClientAdminPage({ params, searchParams }: {
 
 function Section({ title, lead, children }: { title: string; lead?: string; children: React.ReactNode }) {
   return (
-    <section className="rounded-2xl border border-line bg-surface p-6">
+    <section className="min-w-0 rounded-2xl border border-line bg-surface p-6">
       <h2 className="text-lg font-semibold">{title}</h2>
       {lead && <p className="mb-5 mt-0.5 text-sm text-ink-2">{lead}</p>}
       {!lead && <div className="mb-5" />}
