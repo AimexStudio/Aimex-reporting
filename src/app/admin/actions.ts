@@ -6,8 +6,9 @@ import { redirect } from "next/navigation";
 import { hashPassword, requireAdmin } from "@/lib/auth";
 import { parseMetricsCsv } from "@/lib/csv";
 import {
-  EmailTakenError, createClientWithLogin, deleteClientCascade, deleteMonth as removeMonth, getClient,
-  getClientLogin, saveImport, saveMonthNote as storeNote, setPassword, updateClientAndEmail,
+  EmailTakenError, createClientWithLogin, createDashboard, deleteClientCascade, deleteDashboard, deleteMonth as removeMonth,
+  getClient, getClientLogin, getDashboard, renameDashboard, saveImport, saveMonthNote as storeNote, setPassword,
+  updateClientAndEmail,
 } from "@/lib/data";
 import { isMonth, monthLabel } from "@/lib/metrics";
 
@@ -109,10 +110,12 @@ export interface ImportFile {
  * the server first; if any file has a problem, or two files contain the same
  * channel for the same month, nothing is saved.
  */
-export async function importCsvFiles(input: { clientId: string; files: ImportFile[]; note: string }): Promise<ImportResult> {
+export async function importCsvFiles(input: { clientId: string; dashboardId: string; files: ImportFile[]; note: string }): Promise<ImportResult> {
   await requireAdmin();
   const client = await getClient(input.clientId);
   if (!client) return { error: "That client no longer exists." };
+  const dash = await getDashboard(client.id, input.dashboardId);
+  if (!dash) return { error: "That dashboard no longer exists." };
   if (!input.files.length) return { error: "Choose at least one CSV file." };
   if (input.files.length > 12) return { error: "Upload up to 12 files at a time." };
 
@@ -147,6 +150,7 @@ export async function importCsvFiles(input: { clientId: string; files: ImportFil
   for (const { f, parsed } of parsedFiles) {
     await saveImport({
       clientId: client.id,
+      dashboardId: dash.id,
       rows: parsed.rows,
       months: parsed.months,
       filename: f.filename || null,
@@ -160,7 +164,7 @@ export async function importCsvFiles(input: { clientId: string; files: ImportFil
   const channels = [...new Set(parsedFiles.flatMap((p) => p.parsed.channels))].join(", ");
   const months = [...allMonths].sort();
   return {
-    ok: `Imported ${channels} for ${months.length === 1 ? monthLabel(months[0]) : `${months.length} months`}${parsedFiles.length > 1 ? ` from ${parsedFiles.length} files` : ""}. ${client.name}’s dashboard is updated.`,
+    ok: `Imported ${channels} for ${months.length === 1 ? monthLabel(months[0]) : `${months.length} months`}${parsedFiles.length > 1 ? ` from ${parsedFiles.length} files` : ""}. ${dash.name === client.name ? `${client.name}’s` : `The ${dash.name}`} dashboard is updated.`,
     warnings: [...new Set(parsedFiles.flatMap((p) => p.parsed.warnings.map((w) => (parsedFiles.length > 1 ? `${p.f.filename}: ${w}` : w))))],
   };
 }
@@ -168,10 +172,11 @@ export async function importCsvFiles(input: { clientId: string; files: ImportFil
 export async function saveMonthNote(_p: FormState, f: FormData): Promise<FormState> {
   await requireAdmin();
   const clientId = str(f, "clientId");
+  const dashId = str(f, "dashboardId");
   const month = str(f, "month");
   const body = str(f, "body");
   if (!isMonth(month)) return { error: "Unknown month." };
-  if (!(await storeNote(clientId, month, body.slice(0, 4000) || null))) return { error: "That month has no data yet." };
+  if (!(await storeNote(clientId, dashId, month, body.slice(0, 4000) || null))) return { error: "That month has no data yet." };
   revalidatePath(`/admin/clients/${clientId}`);
   return { ok: body ? "Note saved." : "Note removed." };
 }
@@ -179,8 +184,50 @@ export async function saveMonthNote(_p: FormState, f: FormData): Promise<FormSta
 export async function deleteMonth(f: FormData) {
   await requireAdmin();
   const clientId = str(f, "clientId");
+  const dashId = str(f, "dashboardId");
   const month = str(f, "month");
   if (!isMonth(month)) return;
-  await removeMonth(clientId, month); // figures and note for that month
+  await removeMonth(clientId, dashId, month); // figures and note for that month
   revalidatePath(`/admin/clients/${clientId}`);
+}
+
+/* ---------------- dashboards ---------------- */
+
+export async function addDashboard(_p: FormState, f: FormData): Promise<FormState> {
+  await requireAdmin();
+  const clientId = str(f, "clientId");
+  const name = str(f, "name").slice(0, 80);
+  if (!name) return { error: "Give the dashboard a name, for example the sub-company or stream." };
+  if (!(await getClient(clientId))) return { error: "That client no longer exists." };
+  const d = await createDashboard(clientId, name);
+  revalidatePath(`/admin/clients/${clientId}`);
+  redirect(`/admin/clients/${clientId}?d=${d.id}`);
+}
+
+export async function renameDashboardAction(_p: FormState, f: FormData): Promise<FormState> {
+  await requireAdmin();
+  const clientId = str(f, "clientId");
+  const dashId = str(f, "dashboardId");
+  const name = str(f, "name").slice(0, 80);
+  if (!name) return { error: "Enter a name." };
+  try {
+    await renameDashboard(clientId, dashId, name);
+  } catch (e) {
+    return { error: (e as Error).message };
+  }
+  revalidatePath(`/admin/clients/${clientId}`);
+  return { ok: "Renamed." };
+}
+
+export async function deleteDashboardAction(f: FormData) {
+  await requireAdmin();
+  const clientId = str(f, "clientId");
+  const dashId = str(f, "dashboardId");
+  try {
+    await deleteDashboard(clientId, dashId);
+  } catch {
+    // last dashboard or already gone: the page shows the current state
+  }
+  revalidatePath(`/admin/clients/${clientId}`);
+  redirect(`/admin/clients/${clientId}`);
 }

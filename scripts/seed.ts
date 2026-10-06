@@ -72,6 +72,8 @@ async function demo() {
   };
   await db.collection("users").doc(userId).set(user);
   await emailRef(demoEmail).set({ userId });
+  const dash = db.collection("clients").doc(clientId).collection("dashboards").doc("main");
+  await dash.set({ name: "Harbour & Vine Wine Co.", createdAt: Date.now() });
 
   const now = new Date();
   let seed = 7;
@@ -98,7 +100,7 @@ async function demo() {
         ch("Website", { sessions: 7400 * g * season * n(), users: 5600 * g * season * n() }),
       ],
     };
-    await db.collection("clients").doc(clientId).collection("months").doc(month).set(doc);
+    await dash.collection("months").doc(month).set(doc);
   }
   console.log(`✓ Demo client created. Log in as ${demoEmail} / ${pw}`);
 }

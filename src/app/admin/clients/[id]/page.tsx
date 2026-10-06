@@ -1,23 +1,32 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { requireAdmin } from "@/lib/auth";
-import { getClient, getClientLogin, getDashboardData, listImports } from "@/lib/data";
+import { getClient, getClientLogin, getDashboardData, getDashboards, listImports } from "@/lib/data";
 import { monthLabel, formatMetric } from "@/lib/metrics";
 import { UploadPanel } from "../../_components/UploadPanel";
 import {
   EditClientForm, ResetPasswordForm, DeleteClientButton, MonthNoteForm, DeleteMonthButton,
+  AddDashboardForm, RenameDashboardForm, DeleteDashboardButton,
 } from "../../_components/ClientForms";
 
 export const dynamic = "force-dynamic";
 
-export default async function ClientAdminPage({ params }: { params: Promise<{ id: string }> }) {
+export default async function ClientAdminPage({ params, searchParams }: {
+  params: Promise<{ id: string }>;
+  searchParams: Promise<{ d?: string }>;
+}) {
   await requireAdmin();
   const { id } = await params;
+  const { d } = await searchParams;
   const client = await getClient(id);
   if (!client) notFound();
-  const [login, data, imports] = await Promise.all([getClientLogin(id), getDashboardData(id), listImports(id)]);
+  const dashboards = await getDashboards(id);
+  const dash = dashboards.find((x) => x.id === d) ?? dashboards[0];
+  if (!dash) notFound();
+  const [login, data, imports] = await Promise.all([getClientLogin(id), getDashboardData(id, dash.id), listImports(id, dash.id)]);
   if (!data) notFound();
   const months = [...data.months].reverse();
+  const multi = dashboards.length > 1;
 
   return (
     <div className="grid grid-cols-1 gap-10">
@@ -27,18 +36,41 @@ export default async function ClientAdminPage({ params }: { params: Promise<{ id
           <div>
             <h1 className="text-3xl font-semibold tracking-tight">{client.name}</h1>
             <p className="mt-1 text-ink-2">
-              {login?.email ?? "No login"} · {data.months.length} month{data.months.length === 1 ? "" : "s"} on file
+              {login?.email ?? "No login"}, {dashboards.length} dashboard{multi ? "s" : ""}
             </p>
           </div>
-          <Link href={`/admin/clients/${id}/preview`} className="btn btn-quiet">See their dashboard</Link>
+          <div className="flex flex-wrap gap-2">
+            {multi && <Link href={`/admin/clients/${id}/preview?d=overview`} className="btn btn-quiet">See their overview</Link>}
+            <Link href={`/admin/clients/${id}/preview?d=${dash.id}`} className="btn btn-quiet">See {multi ? `the ${dash.name}` : "their"} dashboard</Link>
+          </div>
         </div>
       </div>
 
-      <Section title="Upload monthly data" lead="Add a month of results from a CSV. You’ll see a preview before anything is saved.">
-        <UploadPanel clientId={id} clientName={client.name} existing={data.months.flatMap((m) => m.channels.map((c) => `${m.month}|${c.channel}`))} />
+      <section aria-label="Dashboards" className="rounded-2xl border border-line bg-surface p-6">
+        <h2 className="text-lg font-semibold">Dashboards</h2>
+        <p className="mb-4 mt-0.5 text-sm text-ink-2">
+          One per sub-company or stream. {multi ? "The client sees an overview of all of them plus a tab for each." : "Add more if this client has several companies or streams to report on separately."}
+        </p>
+        <div className="flex flex-wrap items-center gap-2">
+          {dashboards.map((x) => (
+            <Link key={x.id} href={`/admin/clients/${id}?d=${x.id}`} aria-current={x.id === dash.id ? "page" : undefined}
+              className={`rounded-full px-3.5 py-1.5 text-sm font-medium ${x.id === dash.id ? "bg-night text-white" : "bg-line-soft text-ink hover:bg-line"}`}>
+              {x.name}
+            </Link>
+          ))}
+          <AddDashboardForm clientId={id} />
+        </div>
+        <div className="mt-5 flex flex-wrap items-end justify-between gap-4 border-t border-line-soft pt-5">
+          <RenameDashboardForm clientId={id} dashboardId={dash.id} name={dash.name} />
+          {multi && <DeleteDashboardButton clientId={id} dashboardId={dash.id} name={dash.name} />}
+        </div>
+      </section>
+
+      <Section title={multi ? `Upload monthly data to ${dash.name}` : "Upload monthly data"} lead="Add a month of results from a CSV. You’ll see a preview before anything is saved.">
+        <UploadPanel clientId={id} dashboardId={dash.id} clientName={multi ? dash.name : client.name} existing={data.months.flatMap((m) => m.channels.map((c) => `${m.month}|${c.channel}`))} />
       </Section>
 
-      <Section title="Months on file" lead="Notes appear at the top of the client’s dashboard for that month.">
+      <Section title={multi ? `Months on file for ${dash.name}` : "Months on file"} lead="Notes appear at the top of the client’s dashboard for that month.">
         {months.length === 0 ? (
           <p className="text-ink-2">Nothing uploaded yet.</p>
         ) : (
@@ -53,9 +85,9 @@ export default async function ClientAdminPage({ params }: { params: Promise<{ id
                   {m.totals.spend != null && (
                     <p className="text-sm text-ink-3">{formatMetric("spend", m.totals.spend, client.currency)} spend</p>
                   )}
-                  <div className="mt-1"><DeleteMonthButton clientId={id} month={m.month} label={monthLabel(m.month)} /></div>
+                  <div className="mt-1"><DeleteMonthButton clientId={id} dashboardId={dash.id} month={m.month} label={monthLabel(m.month)} /></div>
                 </div>
-                <MonthNoteForm clientId={id} month={m.month} body={m.note} />
+                <MonthNoteForm clientId={id} dashboardId={dash.id} month={m.month} body={m.note} />
               </li>
             ))}
           </ul>
@@ -70,7 +102,7 @@ export default async function ClientAdminPage({ params }: { params: Promise<{ id
           <Section title="Password" lead="Changing it signs the client out on every device.">
             <ResetPasswordForm clientId={id} />
           </Section>
-          <Section title="Upload history">
+          <Section title={multi ? `Upload history for ${dash.name}` : "Upload history"}>
             {imports.length === 0 ? <p className="text-ink-2">No uploads yet.</p> : (
               <ul className="grid gap-2 text-sm">
                 {imports.map((i) => (

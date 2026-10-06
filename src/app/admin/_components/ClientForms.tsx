@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useActionState, useState } from "react";
 import {
   createClient, updateClient, resetClientPassword, deleteClient, saveMonthNote, deleteMonth,
+  addDashboard, renameDashboardAction, deleteDashboardAction,
   type FormState,
 } from "../actions";
 
@@ -117,11 +118,12 @@ export function DeleteClientButton({ clientId, name }: { clientId: string; name:
   );
 }
 
-export function MonthNoteForm({ clientId, month, body }: { clientId: string; month: string; body: string | null }) {
+export function MonthNoteForm({ clientId, dashboardId, month, body }: { clientId: string; dashboardId: string; month: string; body: string | null }) {
   const [s, action, pending] = useActionState<FormState, FormData>(saveMonthNote, {});
   return (
     <form action={action} className="grid gap-2">
       <input type="hidden" name="clientId" value={clientId} />
+      <input type="hidden" name="dashboardId" value={dashboardId} />
       <input type="hidden" name="month" value={month} />
       <textarea className="input min-h-16 text-sm" name="body" defaultValue={body ?? ""}
         placeholder="A short note for the client about this month (optional)" />
@@ -134,13 +136,57 @@ export function MonthNoteForm({ clientId, month, body }: { clientId: string; mon
   );
 }
 
-export function DeleteMonthButton({ clientId, month, label }: { clientId: string; month: string; label: string }) {
+export function DeleteMonthButton({ clientId, dashboardId, month, label }: { clientId: string; dashboardId: string; month: string; label: string }) {
   return (
     <form action={deleteMonth}
       onSubmit={(e) => { if (!confirm(`Remove all ${label} figures for this client?`)) e.preventDefault(); }}>
       <input type="hidden" name="clientId" value={clientId} />
+      <input type="hidden" name="dashboardId" value={dashboardId} />
       <input type="hidden" name="month" value={month} />
       <button className="text-sm text-neg hover:underline">Remove month</button>
+    </form>
+  );
+}
+
+export function AddDashboardForm({ clientId }: { clientId: string }) {
+  const [s, action, pending] = useActionState<FormState, FormData>(addDashboard, {});
+  const [open, setOpen] = useState(false);
+  if (!open) {
+    return <button type="button" className="rounded-full px-3 py-1.5 text-sm font-medium text-brand-strong ring-1 ring-brand/40 hover:bg-brand-soft" onClick={() => setOpen(true)}>+ Add dashboard</button>;
+  }
+  return (
+    <form action={action} className="flex flex-wrap items-center gap-2">
+      <input type="hidden" name="clientId" value={clientId} />
+      <input className="input w-56 py-1.5" name="name" required autoFocus placeholder="Sub-company or stream name" maxLength={80} />
+      <button className="btn py-1.5" disabled={pending}>{pending ? "Adding…" : "Add"}</button>
+      <button type="button" className="btn btn-quiet py-1.5" onClick={() => setOpen(false)}>Cancel</button>
+      {s.error && <span className="text-sm text-neg">{s.error}</span>}
+    </form>
+  );
+}
+
+export function RenameDashboardForm({ clientId, dashboardId, name }: { clientId: string; dashboardId: string; name: string }) {
+  const [s, action, pending] = useActionState<FormState, FormData>(renameDashboardAction, {});
+  return (
+    <form action={action} className="flex flex-wrap items-end gap-2">
+      <input type="hidden" name="clientId" value={clientId} />
+      <input type="hidden" name="dashboardId" value={dashboardId} />
+      <label className="field w-64"><span>Dashboard name</span>
+        <input key={name} className="input py-1.5" name="name" required defaultValue={name} maxLength={80} /></label>
+      <button className="btn btn-quiet py-1.5" disabled={pending}>{pending ? "Saving…" : "Rename"}</button>
+      {s.ok && <span className="text-sm text-accent">{s.ok}</span>}
+      {s.error && <span className="text-sm text-neg">{s.error}</span>}
+    </form>
+  );
+}
+
+export function DeleteDashboardButton({ clientId, dashboardId, name }: { clientId: string; dashboardId: string; name: string }) {
+  return (
+    <form action={deleteDashboardAction}
+      onSubmit={(e) => { if (!confirm(`Delete the ${name} dashboard? All its months, notes and upload history will be permanently removed. The client’s other dashboards stay.`)) e.preventDefault(); }}>
+      <input type="hidden" name="clientId" value={clientId} />
+      <input type="hidden" name="dashboardId" value={dashboardId} />
+      <button className="btn btn-danger py-1.5">Delete dashboard</button>
     </form>
   );
 }

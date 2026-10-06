@@ -1,7 +1,7 @@
 import { Wordmark } from "./Wordmark";
 import { signOut } from "@/app/actions";
 
-export function ReportShell({ clientName, children, banner }: { clientName: string; children: React.ReactNode; banner?: React.ReactNode }) {
+export function ReportShell({ clientName, children, banner, tabs }: { clientName: string; children: React.ReactNode; banner?: React.ReactNode; tabs?: React.ReactNode }) {
   return (
     <div className="min-h-dvh bg-page">
       {banner}
@@ -19,6 +19,7 @@ export function ReportShell({ clientName, children, banner }: { clientName: stri
           )}
         </div>
       </header>
+      {tabs}
       {children}
       <footer className="mx-auto max-w-6xl px-5 pb-12 pt-4 text-sm text-ink-3 sm:px-8">
         Prepared by Aimex Studio. Results are updated monthly. Questions about a number? Contact your account manager.

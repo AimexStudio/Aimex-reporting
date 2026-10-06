@@ -1,9 +1,13 @@
 /**
  * Firestore layout (all dates are stored as milliseconds since 1970):
  *
- *   clients/{clientId}                     Client
- *   clients/{clientId}/months/{YYYY-MM}    MonthDoc   (one per client-month, all channels inside)
- *   clients/{clientId}/imports/{importId}  ImportDoc  (upload history)
+ *   clients/{clientId}                                        Client (a company or group; one login)
+ *   clients/{clientId}/dashboards/{dashboardId}               DashboardDoc (a sub-company or stream)
+ *   clients/{clientId}/dashboards/{dashboardId}/months/{YYYY-MM}  MonthDoc (all channels for that month)
+ *   clients/{clientId}/dashboards/{dashboardId}/imports/{id}     ImportDoc (upload history)
+ *
+ * Older data stored directly under clients/{clientId}/months is moved into a
+ * dashboard with id "main" the first time the client is opened.
  *   users/{userId}                         User       (admin or client login)
  *   emails/{encoded email}                 { userId } (keeps emails unique)
  *   loginThrottle/{hash}                   failed sign-in counter
@@ -63,4 +67,10 @@ export interface ImportDoc {
   filename: string | null;
   rowCount: number;
   importedAt: number;
+}
+
+export interface DashboardDoc {
+  id: string;
+  name: string;
+  createdAt: number;
 }

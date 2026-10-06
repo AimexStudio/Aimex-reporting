@@ -35,7 +35,7 @@ async function readText(f: File): Promise<string> {
 }
 
 /** existing: "YYYY-MM|Channel" pairs already saved for this client. */
-export function UploadPanel({ clientId, clientName, existing }: { clientId: string; clientName: string; existing: string[] }) {
+export function UploadPanel({ clientId, dashboardId, clientName, existing }: { clientId: string; dashboardId: string; clientName: string; existing: string[] }) {
   const [month, setMonth] = useState(previousMonth());
   const [files, setFiles] = useState<Pending[]>([]);
   const [note, setNote] = useState("");
@@ -82,6 +82,7 @@ export function UploadPanel({ clientId, clientName, existing }: { clientId: stri
     start(async () => {
       const r = await importCsvFiles({
         clientId,
+        dashboardId,
         note,
         files: files.map((f) => ({ csv: f.text, filename: f.name, defaultMonth: month, defaultChannel: f.channel, conversionsAs: f.conversionsAs })),
       });

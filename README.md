@@ -67,6 +67,15 @@ The logo is `public/brand/logo-color.png` and is always shown in brand orange, o
 
 Figures that combine channels (cost per lead, ROAS, CTR, funnel steps) only use the channels that produced them, so Google spend is never divided by Meta leads.
 
+## Clients with several companies or streams
+
+A client account can hold several **dashboards**, one per sub-company or stream (for example BRRV I, BRRV II and BRRV Rentals under "BRRV Group"). The client keeps one login.
+
+- **Admin:** on the client's page, the **Dashboards** box shows a tab per dashboard. Use **+ Add dashboard** to create one, and rename or delete the selected one there. Uploads, months, notes and upload history all apply to the selected dashboard. Deleting a dashboard removes only its own data, and a client always keeps at least one.
+- **Client:** with two or more dashboards, the client lands on an **Overview** of all companies combined (total spend, total results, blended cost per result, and a *Results by company* comparison), with a tab for each company's full report. With one dashboard they see exactly the single report, with no tabs.
+- In the overview, month-on-month changes are only shown when the same companies have figures in both months; otherwise the report says why they're hidden.
+- Clients created before dashboards existed have their data moved into a first dashboard (named after the client) automatically, the first time they're opened.
+
 ## Admins
 
 Open **Team** in the admin top bar to:
@@ -128,9 +137,10 @@ The preview lists exactly what was combined, skipped and why, before anything is
 ## How the data is stored
 
 ```
-clients/{clientId}                     name, currency, private notes
-clients/{clientId}/months/{YYYY-MM}    every channel's figures for that month, plus the note to the client
-clients/{clientId}/imports/{id}        upload history
+clients/{clientId}                                          name, currency, private notes
+clients/{clientId}/dashboards/{dashboardId}                 a sub-company or stream
+clients/{clientId}/dashboards/{dashboardId}/months/{YYYY-MM} every channel's figures for that month, plus the note
+clients/{clientId}/dashboards/{dashboardId}/imports/{id}    upload history
 users/{userId}                         logins (admin, or a client tied to one clientId)
 emails/{email}                         keeps login emails unique
 loginThrottle/{id}                     failed sign-in counters

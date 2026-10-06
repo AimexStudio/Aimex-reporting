@@ -23,7 +23,8 @@ export function Dashboard({ data }: { data: DashboardData }) {
   const [selected, setSelected] = useState(months.at(-1)?.month ?? "");
   const idx = months.findIndex((m) => m.month === selected);
   const month = months[idx];
-  const prev = idx > 0 ? months[idx - 1] : undefined;
+  // In the overview, a month whose set of companies differs from last month isn't compared.
+  const prev = idx > 0 && !months[idx]?.compareNote ? months[idx - 1] : undefined;
 
   if (!month) {
     return (
@@ -45,16 +46,17 @@ export function Dashboard({ data }: { data: DashboardData }) {
 
   return (
     <>
-      <Hero months={months} month={month} prev={prev} outcome={outcome} currency={cur} onMonth={setSelected} />
+      <Hero months={months} month={month} prev={prev} outcome={outcome} currency={cur} onMonth={setSelected}
+        scopeName={data.scope.kind === "overview" ? "All companies" : data.scope.name !== client.name ? data.scope.name : null} />
       <main className="mx-auto grid max-w-6xl grid-cols-1 gap-12 px-5 py-12 sm:px-8">
-        <Tiles months={months} idx={idx} exclude={equationKeys} currency={cur} />
+        <Tiles months={months} idx={idx} prev={prev} exclude={equationKeys} currency={cur} />
         {outcome && month.channels.some((c) => (c.metrics[outcome] ?? 0) > 0 && c.metrics.impressions) ? <Funnel month={month} outcome={outcome} currency={cur} /> : null}
         {breakdowns.length > 0 && outcome && (
           <WhatWorked items={breakdowns} metric={outcome} currency={cur} showChannel={breakdowns.length > 1} />
         )}
         {months.length >= 2 && outcome && month.totals.spend != null && <MoneyOverTime months={months} outcome={outcome} currency={cur} />}
         {months.length >= 2 && <Trend months={months} selected={selected} onSelect={setSelected} currency={cur} defaultMetric={outcome ?? "spend"} />}
-        {month.channels.length >= 2 && <Channels month={month} prev={prev} currency={cur} />}
+        {month.channels.length >= 2 && <Channels month={month} prev={prev} currency={cur} unit={data.scope.kind === "overview" ? "company" : "channel"} />}
         <AllNumbers month={month} prev={prev} currency={cur} />
       </main>
     </>
@@ -70,8 +72,9 @@ function equationMetrics(m: MonthData, outcome: string | null): string[] {
   return [];
 }
 
-function Hero({ months, month, prev, outcome, currency, onMonth }: {
+function Hero({ months, month, prev, outcome, currency, onMonth, scopeName }: {
   months: MonthData[]; month: MonthData; prev?: MonthData; outcome: string | null; currency: string; onMonth: (m: string) => void;
+  scopeName: string | null;
 }) {
   const t = month.totals;
   const [name, year] = monthLabel(month.month).split(" ");
@@ -80,9 +83,12 @@ function Hero({ months, month, prev, outcome, currency, onMonth }: {
       <div aria-hidden="true" className="pointer-events-none absolute -right-40 -top-40 size-[520px] rounded-full bg-brand/10 blur-3xl" />
       <div className="relative mx-auto max-w-6xl px-5 pb-12 pt-10 sm:px-8 sm:pb-14">
         <div className="flex flex-wrap items-center justify-between gap-4">
-          <h2 id="hero-heading" className="brand-h text-white/75">
-            {name} {year} <strong className="text-brand">results</strong>
-          </h2>
+          <div>
+            {scopeName && <p className="mb-1 text-lg font-semibold text-white">{scopeName}</p>}
+            <h2 id="hero-heading" className="brand-h text-white/75">
+              {name} {year} <strong className="text-brand">results</strong>
+            </h2>
+          </div>
           <MonthPicker months={months} value={month.month} onChange={onMonth} />
         </div>
 
@@ -92,6 +98,7 @@ function Hero({ months, month, prev, outcome, currency, onMonth }: {
         {months.length === 1 && (
           <p className="mt-3 text-white/60">Your first report. From next month you’ll also see how each number has changed.</p>
         )}
+        {month.compareNote && <p className="mt-3 max-w-2xl text-white/60">{month.compareNote}</p>}
 
         {t.spend && t.revenue ? (
           <RevenueEquation month={month} prev={prev} currency={currency} />
@@ -232,9 +239,8 @@ function Sparkline({ values }: { values: (number | undefined)[] }) {
 
 /* ================= tiles ================= */
 
-function Tiles({ months, idx, exclude, currency }: { months: MonthData[]; idx: number; exclude: string[]; currency: string }) {
+function Tiles({ months, idx, prev, exclude, currency }: { months: MonthData[]; idx: number; prev?: MonthData; exclude: string[]; currency: string }) {
   const month = months[idx];
-  const prev = idx > 0 ? months[idx - 1] : undefined;
   const keys = TILE_PRIORITY.filter((k) => month.totals[k] != null && !exclude.includes(k)).slice(0, 6);
   if (keys.length < 2) return null;
   return (
@@ -645,20 +651,21 @@ function Trend({ months, selected, onSelect, currency, defaultMetric }: {
   );
 }
 
-function Channels({ month, prev, currency }: { month: MonthData; prev?: MonthData; currency: string }) {
+function Channels({ month, prev, currency, unit }: { month: MonthData; prev?: MonthData; currency: string; unit: "channel" | "company" }) {
   const cols = CHANNEL_COLUMNS.filter((k) => month.channels.some((c) => c.metrics[k] != null));
   const prevBy = new Map(prev?.channels.map((c) => [c.channel, c.metrics]) ?? []);
   return (
     <section aria-labelledby="channel-heading" className="rounded-3xl bg-surface p-6 ring-1 ring-line sm:p-8">
       <div id="channel-heading">
-        <SectionHead light="Results by" bold="channel" lead="How your budget and results were split across channels." />
+        <SectionHead light="Results by" bold={unit}
+          lead={unit === "company" ? "How the budget and results were split across your companies." : "How your budget and results were split across channels."} />
       </div>
       <ChannelDonuts month={month} currency={currency} />
       <div className="mt-6 overflow-x-auto">
         <table className="w-full min-w-[640px] text-sm">
           <thead>
             <tr className="border-b border-line text-left text-ink-2">
-              <th className="py-2 pr-4 font-medium">Channel</th>
+              <th className="py-2 pr-4 font-medium">{unit === "company" ? "Company" : "Channel"}</th>
               {cols.map((k) => <th key={k} className="px-3 py-2 text-right font-medium">{metricDef(k).label}</th>)}
             </tr>
           </thead>

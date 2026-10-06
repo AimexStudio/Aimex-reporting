@@ -60,7 +60,9 @@ export default async function AdminHome() {
                   <tr key={c.id} className="border-b border-line-soft last:border-0 hover:bg-page/60">
                     <td className="px-5 py-3.5">
                       <Link href={`/admin/clients/${c.id}`} className="font-semibold hover:underline">{c.name}</Link>
-                      {c.contactName && <div className="text-ink-3">{c.contactName}</div>}
+                      {(c.contactName || c.dashboardCount > 1) && (
+                        <div className="text-ink-3">{[c.contactName, c.dashboardCount > 1 ? `${c.dashboardCount} dashboards` : null].filter(Boolean).join(", ")}</div>
+                      )}
                     </td>
                     <td className="px-5 py-3.5 text-ink-2">{c.email ?? "–"}</td>
                     <td className="px-5 py-3.5">
