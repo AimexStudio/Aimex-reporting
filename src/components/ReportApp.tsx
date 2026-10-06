@@ -6,7 +6,7 @@ import type { DashboardData, MonthData } from "@/lib/data";
 import { formatMetric, formatPercent, monthLabel } from "@/lib/metrics";
 import { outcomeMetric, outcomeNoun } from "@/lib/insights";
 import { ReportBody } from "./Dashboard";
-import { BreakdownTable, GoalsSection, NotesPanel, Roadmap, RoiPlanner } from "./ReportSections";
+import { BreakdownTable, ChannelTiles, GoalsSection, NotesPanel, Roadmap, RoiPlanner } from "./ReportSections";
 import { FullscreenButton, PrintButton } from "./ReportTools";
 
 type Section = { id: string; label: string; icon: string };
@@ -147,9 +147,13 @@ export function ReportApp({ data, companies, currentCompany, manageHref, signOut
             unit="channel" showWorked benchmark={settings.benchmark}
             slots={{
               afterHero: <NotesPanel notes={month?.sectionNotes[channelName]} title={channelName} />,
+              tiles: (() => {
+                const c = channelMonths.find((m) => m.month === selected)?.channels[0];
+                return <ChannelTiles m={c?.metrics} b={c?.breakdowns} currency={cur} benchmark={settings.benchmark} />;
+              })(),
               afterTiles: (() => {
                 const b = channelMonths.find((m) => m.month === selected)?.channels[0]?.breakdowns;
-                return b ? <BreakdownTable b={b} currency={cur} /> : null;
+                return b ? <BreakdownTable b={b} currency={cur} channel={channelName} month={selected} /> : null;
               })(),
             }} />
         )}

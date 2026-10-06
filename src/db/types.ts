@@ -47,7 +47,7 @@ export interface User {
 }
 
 /** Non-additive details kept for a row when the export has exactly one line for it. */
-export interface RowAttrs { delivery?: string; resultType?: string; budget?: number; budgetType?: string; optScore?: number }
+export interface RowAttrs { delivery?: string; resultType?: string; budget?: number; budgetType?: string; optScore?: number; parent?: string }
 export interface BreakdownRow { label: string; metrics: Record<string, number>; attrs?: RowAttrs }
 export interface AudienceRow { age: string; gender: string; metrics: Record<string, number> }
 /** Which ads, ad sets, campaigns and audiences produced the results (from platform exports). */

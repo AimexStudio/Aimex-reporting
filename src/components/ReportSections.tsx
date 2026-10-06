@@ -4,8 +4,9 @@ import { useMemo, useState } from "react";
 import type { Breakdowns, BreakdownRow, Goal, Milestone, SectionNotes } from "@/db/types";
 import type { MonthData } from "@/lib/data";
 import { formatMetric, formatPercent, metricDef, monthLabel, withDerived } from "@/lib/metrics";
-import { cleanLabels, outcomeMetric, outcomeNoun } from "@/lib/insights";
-import { SectionHead } from "./Dashboard";
+import { outcomeMetric, outcomeNoun } from "@/lib/insights";
+import { SectionHead, benchmarkText, type Benchmark } from "./Dashboard";
+import { MetricIcon } from "./icons";
 
 const card = "rounded-3xl bg-surface p-6 ring-1 ring-line sm:p-8";
 
@@ -47,56 +48,120 @@ export function NotesPanel({ notes, title }: { notes?: SectionNotes; title: stri
   );
 }
 
-/* ================= full campaign / ad set table (channel pages) ================= */
+/* ================= channel tiles (channel pages) ================= */
 
-export function BreakdownTable({ b, currency }: { b: Breakdowns; currency: string }) {
+/** The tile row at the top of a channel page, chosen from what that channel's export contains. */
+export function ChannelTiles({ m, b, currency, benchmark }: {
+  m: Record<string, number> | undefined; b: Breakdowns | null | undefined; currency: string; benchmark?: Benchmark | null;
+}) {
+  if (!m) return null;
+  const outcome = outcomeMetric(m);
+  // Spend-weighted optimisation score across campaigns that report one
+  const scored = (b?.campaigns ?? []).filter((r) => r.attrs?.optScore != null);
+  const scoreSpend = scored.reduce((t, r) => t + (r.metrics.spend ?? 0), 0);
+  const optScore = scored.length
+    ? scoreSpend > 0 ? scored.reduce((t, r) => t + r.attrs!.optScore! * (r.metrics.spend ?? 0), 0) / scoreSpend
+      : scored.reduce((t, r) => t + r.attrs!.optScore!, 0) / scored.length
+    : null;
+  // Cost per result already leaves out spend that bought other results (see withResultSpend).
+  const unit = b?.adSets?.length ? b.adSets : b?.campaigns?.length ? b.campaigns : b?.ads;
+  const producing = outcome && unit?.length ? unit.filter((r) => (r.metrics[outcome] ?? 0) > 0) : [];
+  const excluded = outcome && unit?.length && producing.length ? unit.filter((r) => !((r.metrics[outcome] ?? 0) > 0) && (r.metrics.spend ?? 0) > 0) : [];
+  const cost = outcome === "leads" ? m.cpl ?? null : outcome === "conversions" ? m.cpa ?? null : outcome && m.spend && m[outcome] ? m.spend / m[outcome] : null;
+  const excludedTypes = [...new Set(excluded.map((r) => r.attrs?.resultType ?? "other results"))];
+  const outcomeTypes = [...new Set(producing.map((r) => r.attrs?.resultType).filter(Boolean))] as string[];
+  const bench = cost != null ? benchmarkText(cost, benchmark, currency) : null;
+  const n = (v: number) => formatMetric("clicks", v, currency);
+  const noun = outcome ? outcomeNoun(outcome) : "";
+  const Noun = noun.replace(/^./, (c) => c.toUpperCase());
+
+  type Tile = { key: string; icon: string; label: string; value: string; sub: string; tone?: "brand" | "good" };
+  const tiles: Tile[] = [];
+  if (optScore != null) tiles.push({ key: "opt", icon: "revenue", label: "Optimisation score", value: `${optScore.toFixed(2)}%`, sub: "Campaign quality score from Google", tone: "brand" });
+  if (!m.clicks && m.spend != null) tiles.push({ key: "spend", icon: "spend", label: "Amount spent", value: formatMetric("spend", m.spend, currency, { exact: true }), sub: "Total for the reporting period" });
+  if (outcome) tiles.push({
+    key: "out", icon: "leads", label: Noun, value: `${n(m[outcome])} ${Noun}`,
+    sub: m.clicks ? `${formatPercent(m[outcome] / m.clicks, 2)} of clicks became ${noun}` : outcomeTypes.length ? outcomeTypes.join(", ") : `Total ${noun}`,
+  });
+  if (cost != null) tiles.push({ key: "cost", icon: "cost", label: `Cost per ${outcomeNoun(outcome!, 1)}`, value: formatMetric("cpl", cost, currency), sub: excluded.length ? `Excludes spend on ${excludedTypes.join(", ").toLowerCase()}` : bench?.text ?? "Average for the month", tone: bench?.good || excluded.length ? "good" : undefined });
+  if (m.clicks && m.impressions) tiles.push({ key: "ctr", icon: "impressions", label: "Click-through rate", value: formatPercent(m.clicks / m.impressions, 2), sub: `${n(m.clicks)} clicks on ${n(m.impressions)} impressions` });
+  if (!m.clicks && m.impressions) tiles.push({ key: "impr", icon: "impressions", label: "Total impressions", value: n(m.impressions), sub: "Times your ads were shown" });
+  if (m.reach) tiles.push({ key: "reach", icon: "leads", label: "Unique reach", value: n(m.reach), sub: "Different people who saw your ads" });
+  if (m.clicks && m.spend != null && tiles.length < 5) tiles.push({ key: "spend2", icon: "spend", label: "Total cost", value: formatMetric("spend", m.spend, currency, { exact: true }), sub: "Total for the reporting period" });
+  if (!tiles.length) return null;
+  return (
+    <section aria-label="Key figures" className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,250px),1fr))] gap-4">
+      {tiles.map((t) => (
+        <div key={t.key} className="min-w-0 rounded-2xl bg-surface p-5 ring-1 ring-line">
+          <div className="flex items-start justify-between gap-3">
+            <p className="pt-1 text-xs font-semibold uppercase tracking-wide text-ink-3">{t.label}</p>
+            <span className="grid size-9 shrink-0 place-items-center rounded-xl bg-brand-soft text-brand-strong"><MetricIcon metric={t.icon} className="size-[18px]" /></span>
+          </div>
+          <p className={`num mt-1 whitespace-nowrap text-[clamp(1.4rem,0.9rem+1.2vw,2rem)] leading-none ${t.tone === "brand" ? "text-brand-strong" : t.tone === "good" ? "text-good" : "text-ink"}`}>{t.value}</p>
+          <p className={`mt-2 text-sm ${t.key === "out" && m.clicks ? "font-medium text-good" : "text-ink-2"}`}>{t.sub}</p>
+        </div>
+      ))}
+    </section>
+  );
+}
+
+/* ================= campaign / ad set table (channel pages) ================= */
+
+export function BreakdownTable({ b, currency, channel, month }: { b: Breakdowns; currency: string; channel: string; month: string }) {
   const rows: BreakdownRow[] | undefined = b.adSets?.length ? b.adSets : b.campaigns?.length ? b.campaigns : b.ads;
   if (!rows?.length) return null;
   const level = b.adSets?.length ? "ad set" : b.campaigns?.length ? "campaign" : "ad";
-  const names = cleanLabels(rows.map((r) => r.label));
-  const data = rows.map((r) => ({ r, m: withDerived(r.metrics), name: names.get(r.label) ?? r.label }));
+  const data = rows.map((r) => ({ r, m: withDerived(r.metrics) }));
   const has = (k: string) => data.some((d) => d.m[k] != null);
+  const attr = (k: "delivery" | "resultType" | "budget" | "optScore" | "parent") => data.some((d) => d.r.attrs?.[k] != null);
   const outcome = outcomeMetric(data.reduce<Record<string, number>>((t, d) => { for (const [k, v] of Object.entries(d.r.metrics)) t[k] = (t[k] ?? 0) + v; return t; }, {}));
-  const costKey = outcome === "leads" ? "cpl" : outcome === "conversions" ? "cpa" : null;
-  const showAttr = (k: "delivery" | "resultType" | "budget" | "optScore") => data.some((d) => d.r.attrs?.[k] != null);
-  const reachFreq = has("reach");
-  const cols: { key: string; label: string; cell: (d: (typeof data)[number]) => React.ReactNode; right?: boolean }[] = [
-    ...(showAttr("delivery") ? [{ key: "delivery", label: "Status", cell: (d: (typeof data)[number]) => <StatusPill v={d.r.attrs?.delivery} /> }] : []),
-    ...(showAttr("budget") ? [{ key: "budget", label: "Budget", right: true, cell: (d: (typeof data)[number]) => d.r.attrs?.budget != null ? `${formatMetric("spend", d.r.attrs.budget, currency)}${d.r.attrs.budgetType ? ` / ${d.r.attrs.budgetType.toLowerCase().replace("daily", "day")}` : ""}` : "–" }] : []),
-    ...(showAttr("optScore") ? [{ key: "opt", label: "Optimisation score", right: true, cell: (d: (typeof data)[number]) => d.r.attrs?.optScore != null ? `${d.r.attrs.optScore.toFixed(1)}%` : "–" }] : []),
-    ...(reachFreq ? [
-      { key: "reach", label: "Reach", right: true, cell: (d: (typeof data)[number]) => formatMetric("reach", d.m.reach, currency) },
-      { key: "freq", label: "Frequency", right: true, cell: (d: (typeof data)[number]) => d.m.reach && d.m.impressions ? (d.m.impressions / d.m.reach).toFixed(2) : "–" },
+  const withParent = level === "ad set" && attr("parent");
+  const clicks = has("clicks");
+  type D = (typeof data)[number];
+  type Col = { key: string; label: string; cell: (d: D) => React.ReactNode; right?: boolean; center?: boolean };
+  const c = (key: string, label: string, cell: (d: D) => React.ReactNode, opts: Partial<Col> = {}): Col => ({ key, label, cell, right: true, ...opts });
+  const costCell = (d: D) => outcome && d.m.spend && d.m[outcome] ? <span className="font-semibold text-brand-strong">{formatMetric("cpl", d.m.spend / d.m[outcome], currency)}</span> : "–";
+  const outLabel = attr("resultType") ? "Results" : outcome ? outcomeNoun(outcome).replace(/^./, (x) => x.toUpperCase()) : "Results";
+
+  const cols: Col[] = [
+    ...(attr("delivery") ? [c("delivery", "Delivery", (d) => <StatusPill v={d.r.attrs?.delivery} />, { right: false, center: true })] : []),
+    ...(attr("budget") ? [c("budget", "Daily budget", (d) => d.r.attrs?.budget != null ? `${formatMetric("spend", d.r.attrs.budget, currency, { exact: true })} / ${(d.r.attrs.budgetType ?? "day").toLowerCase().replace("daily", "day")}` : "–")] : []),
+    ...(attr("optScore") ? [c("opt", "Optimisation score", (d) => d.r.attrs?.optScore != null ? <span className="text-brand-strong">{d.r.attrs.optScore.toFixed(2)}%</span> : "–")] : []),
+    ...(has("reach") ? [c("reach", "Reach", (d) => formatMetric("reach", d.m.reach, currency))] : []),
+    ...(clicks ? [c("clicks", "Clicks", (d) => formatMetric("clicks", d.m.clicks, currency))] : []),
+    ...(has("impressions") ? [c("impr", "Impressions", (d) => <span className="text-ink-2">{formatMetric("impressions", d.m.impressions, currency)}</span>)] : []),
+    ...(has("reach") ? [c("freq", "Frequency", (d) => d.m.reach && d.m.impressions ? (d.m.impressions / d.m.reach).toFixed(2) : "–")] : []),
+    ...(clicks ? [
+      c("ctr", "CTR", (d) => <span className="text-good">{formatMetric("ctr", d.m.ctr, currency)}</span>),
+      c("cpc", "Avg CPC", (d) => formatMetric("cpc", d.m.cpc, currency)),
     ] : []),
-    ...(has("impressions") ? [{ key: "impressions", label: "Impressions", right: true, cell: (d: (typeof data)[number]) => formatMetric("impressions", d.m.impressions, currency) }] : []),
-    ...(has("clicks") ? [
-      { key: "clicks", label: "Clicks", right: true, cell: (d: (typeof data)[number]) => formatMetric("clicks", d.m.clicks, currency) },
-      { key: "ctr", label: "CTR", right: true, cell: (d: (typeof data)[number]) => formatMetric("ctr", d.m.ctr, currency) },
-      { key: "cpc", label: "Avg CPC", right: true, cell: (d: (typeof data)[number]) => formatMetric("cpc", d.m.cpc, currency) },
-    ] : []),
-    ...(showAttr("resultType") ? [{ key: "rt", label: "Result type", cell: (d: (typeof data)[number]) => d.r.attrs?.resultType ?? "–" }] : []),
-    ...(outcome ? [{ key: "out", label: outcomeNoun(outcome).replace(/^./, (c) => c.toUpperCase()), right: true, cell: (d: (typeof data)[number]) => <strong>{formatMetric(outcome, d.m[outcome], currency)}</strong> }] : []),
-    ...(has("spend") ? [{ key: "spend", label: "Spent", right: true, cell: (d: (typeof data)[number]) => formatMetric("spend", d.m.spend, currency) }] : []),
-    ...(costKey ? [{ key: "cost", label: `Cost per ${outcomeNoun(outcome!, 1)}`, right: true, cell: (d: (typeof data)[number]) => <span className="font-semibold text-brand-strong">{formatMetric("cpl", d.m[costKey], currency)}</span> }] : []),
-    ...(outcome && has("clicks") ? [{ key: "cr", label: "Conv. rate", right: true, cell: (d: (typeof data)[number]) => d.m.clicks && d.m[outcome] ? formatPercent(d.m[outcome] / d.m.clicks, 2) : "–" }] : []),
+    ...(attr("resultType") ? [c("rt", "Result type", (d) => <span className="text-ink-2">{d.r.attrs?.resultType ?? "–"}</span>, { right: false, center: true })] : []),
+    ...(clicks && has("spend") ? [c("spend", "Total cost", (d) => formatMetric("spend", d.m.spend, currency, { exact: true }))] : []),
+    ...(outcome ? [c("out", outLabel, (d) => <strong>{formatMetric(outcome, d.m[outcome], currency)}</strong>)] : []),
+    ...(!clicks && has("spend") ? [c("spend", "Amount spent", (d) => formatMetric("spend", d.m.spend, currency, { exact: true }))] : []),
+    ...(outcome && has("spend") ? [c("cost", clicks ? `Cost per ${outcomeNoun(outcome, 1)}` : "Cost per result", costCell)] : []),
+    ...(outcome && clicks ? [c("cr", "Conv. rate", (d) => d.m.clicks && d.m[outcome] ? <span className="text-good">{formatPercent(d.m[outcome] / d.m.clicks, 2)}</span> : "–")] : []),
   ];
+  const what = level === "ad set" ? "ad set" : level;
   return (
     <section className={card}>
-      <SectionHead light={`${level === "ad set" ? "Campaign and ad set" : level === "campaign" ? "Campaign" : "Ad"}`} bold="breakdown"
-        lead={`Every ${level} in this month’s report.${!reachFreq && level !== "campaign" ? " Reach and frequency appear when the export has one line per " + level + "." : ""}`} />
+      <SectionHead light={`${channel} campaign performance`} bold="breakdown"
+        lead={`Every ${what} from the ${channel} export for ${monthLabel(month)}.${level === "ad set" && !has("reach") ? " Reach and frequency show when the export has one line per ad set." : ""}`} />
       <div className="overflow-x-auto">
-        <table className="w-full min-w-[720px] text-sm">
+        <table className="w-full min-w-[760px] text-sm">
           <thead>
-            <tr className="border-b border-line text-left text-ink-2">
-              <th className="py-2 pr-4 font-medium">{level === "ad set" ? "Ad set" : level === "campaign" ? "Campaign" : "Ad"}</th>
-              {cols.map((c) => <th key={c.key} className={`px-3 py-2 font-medium ${c.right ? "text-right" : ""}`}>{c.label}</th>)}
+            <tr className="border-b border-line bg-page/70 text-xs uppercase tracking-wide text-ink-2">
+              <th className="px-3 py-3 text-left font-semibold">{withParent ? "Campaign & ad set name" : level === "campaign" ? "Campaign name" : level === "ad set" ? "Ad set name" : "Ad name"}</th>
+              {cols.map((col) => <th key={col.key} className={`px-3 py-3 font-semibold ${col.right ? "text-right" : col.center ? "text-center" : "text-left"}`}>{col.label}</th>)}
             </tr>
           </thead>
           <tbody>
             {data.map((d) => (
               <tr key={d.r.label} className="border-b border-line-soft last:border-0">
-                <th scope="row" className="py-3 pr-4 text-left font-medium" title={d.r.label}>{d.name}</th>
-                {cols.map((c) => <td key={c.key} className={`whitespace-nowrap px-3 py-3 ${c.right ? "text-right" : ""}`}>{c.cell(d)}</td>)}
+                <th scope="row" className="max-w-[260px] px-3 py-4 text-left align-middle font-semibold">
+                  {withParent && d.r.attrs?.parent ? (<>{d.r.attrs.parent}<span className="mt-0.5 block font-normal text-ink-3">{d.r.label}</span></>) : d.r.label}
+                </th>
+                {cols.map((col) => <td key={col.key} className={`whitespace-nowrap px-3 py-4 ${col.right ? "text-right" : col.center ? "text-center" : ""}`}>{col.cell(d)}</td>)}
               </tr>
             ))}
           </tbody>
@@ -218,7 +283,7 @@ export function RoiPlanner({ month, currency, roi }: {
   const outcome = outcomeMetric(t) ?? "leads";
   const noun = outcomeNoun(outcome);
   const one = outcomeNoun(outcome, 1);
-  const currentCost = t.spend && t[outcome] ? t.spend / t[outcome] : 60;
+  const currentCost = (outcome === "leads" ? t.cpl : outcome === "conversions" ? t.cpa : undefined) ?? (t.spend && t[outcome] ? t.spend / t[outcome] : 60);
   const saleNoun = roi?.saleNoun || "sales";
   const start = {
     budget: Math.round(t.spend || 20000),

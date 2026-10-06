@@ -18,6 +18,8 @@ const SERIES = PALETTE;
 const COST_KEY: Record<string, string> = { leads: "cpl", conversions: "cpa" };
 
 export interface BodySlots {
+  /** Replaces the standard figure tiles (channel pages use their own). */
+  tiles?: React.ReactNode;
   /** Shown right under the results band (e.g. written insights and warnings). */
   afterHero?: React.ReactNode;
   /** Shown after the figure tiles (e.g. the campaign table on a channel page). */
@@ -72,7 +74,7 @@ export function ReportBody({ months, currency, selected, onSelect, scopeName, un
       <Hero months={months} month={month} prev={prev} outcome={outcome} currency={currency} onMonth={onSelect} scopeName={scopeName} benchmark={benchmark} />
       <main className="mx-auto w-full max-w-[1600px] px-5 sm:px-8 lg:px-12 grid grid-cols-1 gap-12 py-12 print:gap-8 print:py-8">
         {slots?.afterHero}
-        <Tiles months={months} idx={idx} prev={prev} exclude={equationKeys} currency={currency} />
+        {slots?.tiles ?? <Tiles months={months} idx={idx} prev={prev} exclude={equationKeys} currency={currency} />}
         {slots?.afterTiles}
         {outcome && month.channels.some((c) => (c.metrics[outcome] ?? 0) > 0 && c.metrics.impressions) ? <Funnel month={month} outcome={outcome} currency={currency} /> : null}
         {showWorked && breakdowns.length > 0 && outcome && (

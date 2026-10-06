@@ -291,9 +291,11 @@ export function parseMetricsCsv(text: string, formMonth?: string, defaultChannel
   ) as Record<keyof typeof DIM, string | undefined>;
   type BdMaps = { ads: Map<string, Record<string, number>>; adSets: Map<string, Record<string, number>>; campaigns: Map<string, Record<string, number>>; audiences: Map<string, Record<string, number>> };
   const bdMaps = new Map<string, BdMaps>();
-  type Attr = { delivery?: string; resultType?: string; budget?: number; budgetType?: string; optScore?: number; reach?: number };
+  type Attr = { delivery?: string; resultType?: string; budget?: number; budgetType?: string; optScore?: number; reach?: number; parent?: string };
   const rowCounts = new Map<string, number>();
   const rowAttrs = new Map<string, Attr>();
+  // Text details seen across all of a label's lines: kept when every line agrees (e.g. one result type).
+  const seenText = new Map<string, Map<string, Set<string>>>();
   const agg = new Map<string, ParsedRow>();
   const rowsPerKey = new Map<string, number>();
   const resultTypes = new Map<string, number>();
@@ -367,6 +369,12 @@ export function parseMetricsCsv(text: string, formMonth?: string, defaultChannel
         // Remember the first line's details; they're only shown if this label has exactly one line.
         const k = `${key}|${kind}|${label}`;
         rowCounts.set(k, (rowCounts.get(k) ?? 0) + 1);
+        const texts = seenText.get(k) ?? new Map<string, Set<string>>();
+        seenText.set(k, texts);
+        const note = (field: string, v: string | undefined) => { if (v) { const set = texts.get(field) ?? new Set(); set.add(v); texts.set(field, set); } };
+        note("resultType", resultTypeCol ? r[resultTypeCol]?.trim() : undefined);
+        note("delivery", ["delivery_status", "delivery", "campaign_status", "ad_set_delivery", "status"].map((n) => (r[n] ?? "").trim()).find((v) => v && !isBlank(v)));
+        if (kind === "adSets" && dimCol.campaigns) note("parent", (r[dimCol.campaigns] ?? "").trim().replace(/\s+/g, " "));
         if (!rowAttrs.has(k)) {
           const pick = (names: string[]) => names.map((n) => (r[n] ?? "").trim()).find((v) => v && !isBlank(v));
           const reach = parseNumber(r["reach"]);
@@ -458,7 +466,9 @@ export function parseMetricsCsv(text: string, formMonth?: string, defaultChannel
           const single = rowCounts.get(k) === 1;
           const a = rowAttrs.get(k) ?? {};
           const { reach, ...rest } = a;
-          const attrs = Object.fromEntries(Object.entries(single ? rest : { delivery: a.delivery }).filter(([, v]) => v !== undefined && v !== ""));
+          // Text details that are the same on every line (result type, delivery, parent campaign) are always kept.
+          const agreed = Object.fromEntries([...(seenText.get(k) ?? new Map<string, Set<string>>())].filter(([, v]) => v.size === 1).map(([f, v]) => [f, [...v][0]]));
+          const attrs = Object.fromEntries(Object.entries(single ? { ...rest, ...agreed } : agreed).filter(([, v]) => v !== undefined && v !== ""));
           // reach can only be shown when the export has one line for this row
           const withReach = single && reach != null ? { ...metrics, reach } : metrics;
           return { label, metrics: withReach, ...(Object.keys(attrs).length ? { attrs } : {}) };

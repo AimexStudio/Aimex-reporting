@@ -422,6 +422,21 @@ export async function getOverviewData(clientId: string): Promise<DashboardData |
   };
 }
 
+/**
+ * Cost per lead / conversion should only count spend that could produce them. If a channel's
+ * breakdown has ad sets (or campaigns) that spent money but produced none of its results
+ * (e.g. a blog ad set buying page views), their spend is left out of `result_spend`.
+ */
+function withResultSpend(metrics: Record<string, number>, b?: Breakdowns | null): Record<string, number> {
+  const outcome = (metrics.leads ?? 0) > 0 ? "leads" : (metrics.conversions ?? 0) > 0 ? "conversions" : null;
+  const rows = b?.adSets?.length ? b.adSets : b?.campaigns?.length ? b.campaigns : b?.ads;
+  if (!outcome || !rows?.length || metrics.spend == null) return metrics;
+  const producing = rows.filter((r) => (r.metrics[outcome] ?? 0) > 0);
+  const excluded = rows.filter((r) => !((r.metrics[outcome] ?? 0) > 0)).reduce((t, r) => t + (r.metrics.spend ?? 0), 0);
+  if (!producing.length || excluded <= 0) return metrics;
+  return { ...metrics, result_spend: Math.max(0, metrics.spend - excluded) };
+}
+
 async function loadMonths(clientId: string, dashId: string): Promise<MonthData[]> {
   const snap = await monthsCol(clientId, dashId).get();
   return snap.docs
@@ -429,8 +444,9 @@ async function loadMonths(clientId: string, dashId: string): Promise<MonthData[]
     .filter((m) => m.channels?.length)
     .sort((a, b) => a.month.localeCompare(b.month))
     .map((m) => {
-      const channels = m.channels.map((c) => ({ channel: c.channel, metrics: withDerived(c.metrics), breakdowns: c.breakdowns ?? null, raw: c.metrics }));
-      const totals = deriveTotals(m.channels.map((c) => c.metrics));
+      const raws = m.channels.map((c) => withResultSpend(c.metrics, c.breakdowns));
+      const channels = m.channels.map((c, i) => ({ channel: c.channel, metrics: withDerived(raws[i]), breakdowns: c.breakdowns ?? null, raw: raws[i] }));
+      const totals = deriveTotals(raws);
       channels.sort((a, b) => (b.metrics.spend ?? 0) - (a.metrics.spend ?? 0) || a.channel.localeCompare(b.channel));
       return { month: m.month, totals, channels, note: m.note ?? null, sectionNotes: m.sectionNotes ?? {}, goalActuals: m.goalActuals ?? {} };
     });

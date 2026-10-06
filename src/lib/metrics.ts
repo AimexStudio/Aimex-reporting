@@ -42,8 +42,8 @@ export const DERIVED_METRICS: (MetricDef & {
   inputs: [string, string];
 })[] = [
   { key: "roas", inputs: ["revenue", "spend"], label: "Return on ad spend", kind: "multiple", higherIsBetter: true, compute: (m) => div(m.revenue, m.spend) },
-  { key: "cpa", inputs: ["spend", "conversions"], label: "Cost per conversion", kind: "currency", higherIsBetter: false, compute: (m) => div(m.spend, m.conversions) },
-  { key: "cpl", inputs: ["spend", "leads"], label: "Cost per lead", kind: "currency", higherIsBetter: false, compute: (m) => div(m.spend, m.leads) },
+  { key: "cpa", inputs: ["result_spend", "conversions"], label: "Cost per conversion", kind: "currency", higherIsBetter: false, compute: (m) => div(m.result_spend ?? m.spend, m.conversions) },
+  { key: "cpl", inputs: ["result_spend", "leads"], label: "Cost per lead", kind: "currency", higherIsBetter: false, compute: (m) => div(m.result_spend ?? m.spend, m.leads) },
   { key: "ctr", inputs: ["clicks", "impressions"], label: "Click-through rate", kind: "percent", higherIsBetter: true, compute: (m) => div(m.clicks, m.impressions) },
   { key: "cpc", inputs: ["spend", "clicks"], label: "Cost per click", kind: "currency", higherIsBetter: false, compute: (m) => div(m.spend, m.clicks) },
   { key: "cpm", inputs: ["spend", "impressions"], label: "Cost per 1,000 impressions", kind: "currency", higherIsBetter: false, compute: (m) => { const v = div(m.spend, m.impressions); return v == null ? null : v * 1000; } },
@@ -82,9 +82,11 @@ export function metricDef(key: string): MetricDef {
  * report both of its inputs. Without this, Google spend would be divided by Meta
  * leads and cost per lead would be badly overstated.
  */
-export function deriveTotals(channels: Record<string, number>[]): Record<string, number> {
+export function deriveTotals(channelsIn: Record<string, number>[]): Record<string, number> {
   const out: Record<string, number> = {};
-  for (const c of channels) for (const [k, v] of Object.entries(c)) if (!DERIVED_KEYS.has(k)) out[k] = (out[k] ?? 0) + v;
+  for (const c of channelsIn) for (const [k, v] of Object.entries(c)) if (!DERIVED_KEYS.has(k) && k !== "result_spend") out[k] = (out[k] ?? 0) + v;
+  // Spend that produced results: a channel's own figure if known (e.g. excluding blog page-view ad sets), else its spend.
+  const channels = channelsIn.map((c) => (c.spend != null ? { ...c, result_spend: c.result_spend ?? c.spend } : c));
   for (const d of DERIVED_METRICS) {
     const [a, b] = d.inputs;
     const scoped = channels.filter((c) => c[a] != null && c[b] != null && c[b] !== 0);
@@ -98,6 +100,7 @@ export function deriveTotals(channels: Record<string, number>[]): Record<string,
 /** Adds derived metrics to a bag of base metrics. */
 export function withDerived(base: Record<string, number>): Record<string, number> {
   const out = { ...base };
+  delete out.result_spend; // internal: only used to work out cost per result
   for (const d of DERIVED_METRICS) {
     const v = d.compute(base);
     if (v != null && Number.isFinite(v)) out[d.key] = v;
@@ -134,14 +137,14 @@ export function formatMetric(
   key: string,
   value: number | null | undefined,
   currency: string,
-  opts: { compact?: boolean; axis?: boolean } = {},
+  opts: { compact?: boolean; axis?: boolean; exact?: boolean } = {},
 ): string {
   if (value == null || !Number.isFinite(value)) return "–";
   const def = metricDef(key);
   const compact = !!(opts.compact || opts.axis) && Math.abs(value) >= (opts.axis ? 1_000 : 10_000);
   switch (def.kind) {
     case "currency": {
-      const small = Math.abs(value) < 100 && value !== 0;
+      const small = (Math.abs(value) < 100 && value !== 0) || !!opts.exact;
       const body = plain(value, currency, compact ? 1 : small ? 2 : 0, small && !opts.compact && !opts.axis ? 2 : 0, compact);
       const sign = body.startsWith("−") ? "−" : "";
       return `${sign}${SYMBOL[currency] ?? currency + " "}${body.replace(/^−/, "")}`;
