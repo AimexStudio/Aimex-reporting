@@ -8,10 +8,10 @@ import { parseMetricsCsv } from "@/lib/csv";
 import {
   EmailTakenError, addClientUser, createClientWithLogin, createDashboard, deleteClientCascade, deleteDashboard,
   deleteMonth as removeMonth, getClient, getDashboard, getUser, removeClientUser, renameDashboard, saveDashboardSettings,
-  saveGoalActuals, saveImport, saveMonthNote as storeNote, saveSectionNotes, setClientLogo, setClientUserRole, setPassword,
+  saveGoalActuals, saveImport, saveMonthNote as storeNote, saveSalesSnapshot, saveSectionNotes, setClientLogo, setClientUserRole, setPassword,
   updateClientFields,
 } from "@/lib/data";
-import type { Goal, Milestone } from "@/db/types";
+import type { Goal, Milestone, SalesRow } from "@/db/types";
 import { isMonth, monthLabel } from "@/lib/metrics";
 
 // Every action calls requireAdmin() itself: server actions are public endpoints,
@@ -343,4 +343,46 @@ export async function setLogoAction(input: { clientId: string; dataUrl: string |
   await setClientLogo(input.clientId, d);
   revalidatePath(`/admin/clients/${input.clientId}`);
   return { ok: d ? "Logo saved." : "Logo removed." };
+}
+
+/* ---------------- sales figures entered by hand ---------------- */
+
+export async function saveSalesAction(_p: FormState, f: FormData): Promise<FormState> {
+  const clientId = str(f, "clientId");
+  await requireClientAccess(clientId);
+  const dashId = str(f, "dashboardId");
+  const month = str(f, "month");
+  if (!isMonth(month)) return { error: "Choose the month these figures are for." };
+  let rows: SalesRow[];
+  try {
+    rows = (JSON.parse(str(f, "rows") || "[]") as SalesRow[])
+      .map((r) => ({
+        status: String(r.status ?? "").trim().slice(0, 40),
+        units: Math.max(0, Math.round(Number(r.units) || 0)),
+        value: r.value == null || String(r.value) === "" || !Number.isFinite(Number(r.value)) ? null : Math.max(0, Number(r.value)),
+        size: r.size == null || String(r.size) === "" || !Number.isFinite(Number(r.size)) ? null : Math.max(0, Number(r.size)),
+      }))
+      .filter((r) => r.status)
+      .slice(0, 12);
+  } catch {
+    return { error: "Couldn’t read the figures. Reload the page and try again." };
+  }
+  if (!rows.length) return { error: "Add at least one status with a number of units." };
+  if (new Set(rows.map((r) => r.status.toLowerCase())).size !== rows.length) return { error: "Each status can only appear once." };
+  try {
+    await saveSalesSnapshot(clientId, dashId, month, rows);
+  } catch (e) {
+    return { error: (e as Error).message };
+  }
+  revalidatePath(`/admin/clients/${clientId}`);
+  return { ok: `Sales figures for ${monthLabel(month)} saved.` };
+}
+
+export async function deleteSalesAction(f: FormData) {
+  const clientId = str(f, "clientId");
+  await requireClientAccess(clientId);
+  const month = str(f, "month");
+  if (!isMonth(month)) return;
+  try { await saveSalesSnapshot(clientId, str(f, "dashboardId"), month, null); } catch { /* page shows current state */ }
+  revalidatePath(`/admin/clients/${clientId}`);
 }

@@ -105,7 +105,24 @@ export interface Milestone {
   status: "done" | "current" | "upcoming";
 }
 
+/** One line of a sales snapshot, e.g. "Sold: 18 units, R 38 148 200, 1 116 m²". */
+export interface SalesRow {
+  status: string;
+  units: number;
+  value: number | null;
+  size: number | null;
+}
+
+/** Sales figures entered by hand for one month (a snapshot of the whole inventory). */
+export interface SalesSnapshot {
+  month: string; // "YYYY-MM"
+  rows: SalesRow[];
+  updatedAt: number;
+}
+
 export interface DashboardSettings {
+  /** Monthly sales snapshots, by "YYYY-MM". */
+  sales?: Record<string, SalesSnapshot>;
   /** Market cost-per-result range for comparison, e.g. 120–200 for "Cape Town upscale property". */
   benchmark?: { min: number | null; max: number | null; label: string } | null;
   goals?: Goal[];

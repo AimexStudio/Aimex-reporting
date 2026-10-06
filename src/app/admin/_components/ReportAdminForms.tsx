@@ -1,9 +1,11 @@
 "use client";
 
 import { useActionState, useState, useTransition } from "react";
-import type { Goal, Milestone, SectionNotes } from "@/db/types";
+import type { Goal, Milestone, SalesRow, SalesSnapshot, SectionNotes } from "@/db/types";
+import { DEFAULT_STATUSES, statusColor } from "@/lib/sales";
+import { monthLabel } from "@/lib/metrics";
 import {
-  addClientUserAction, changeClientUserRole, removeClientUserAction, resetClientPassword, saveGoalActualsAction,
+  addClientUserAction, changeClientUserRole, deleteSalesAction, removeClientUserAction, resetClientPassword, saveGoalActualsAction, saveSalesAction,
   saveReportSettingsAction, saveSectionNotesAction, setLogoAction, type FormState,
 } from "../actions";
 
@@ -280,6 +282,108 @@ export function LogoForm({ clientId, logo }: { clientId: string; logo: string | 
         )}
         {pending ? <span className="text-sm text-ink-3">Saving…</span> : say(msg)}
       </div>
+    </div>
+  );
+}
+
+/* ================= sales figures entered by hand ================= */
+
+type EditRow = { status: string; units: string; value: string; size: string };
+const toEdit = (rows: SalesRow[]): EditRow[] => rows.map((r) => ({ status: r.status, units: String(r.units), value: r.value == null ? "" : String(r.value), size: r.size == null ? "" : String(r.size) }));
+const blankRows = (): EditRow[] => DEFAULT_STATUSES.map((status) => ({ status, units: "", value: "", size: "" }));
+const thisMonth = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`; };
+
+export function SalesForm({ clientId, dashboardId, sales }: { clientId: string; dashboardId: string; sales: Record<string, SalesSnapshot> }) {
+  const saved = Object.keys(sales).sort().reverse();
+  const latest = saved[0] ? sales[saved[0]] : null;
+  const [month, setMonth] = useState(thisMonth());
+  // A new month starts from the latest figures, so only what changed needs typing.
+  const [rows, setRows] = useState<EditRow[]>(sales[thisMonth()] ? toEdit(sales[thisMonth()].rows) : latest ? toEdit(latest.rows) : blankRows());
+  const [s, action, pending] = useActionState<FormState, FormData>(saveSalesAction, {});
+  const set = (i: number, p: Partial<EditRow>) => setRows(rows.map((r, j) => (j === i ? { ...r, ...p } : r)));
+  const load = (m: string) => { setMonth(m); if (sales[m]) setRows(toEdit(sales[m].rows)); };
+  const n = (v: string) => Number(v.replace(/[^\d.]/g, "")) || 0;
+  const totals = { units: rows.reduce((t, r) => t + n(r.units), 0), value: rows.reduce((t, r) => t + n(r.value), 0), size: rows.reduce((t, r) => t + n(r.size), 0) };
+  const payload = JSON.stringify(rows.map((r) => ({ status: r.status, units: n(r.units), value: r.value.trim() ? n(r.value) : null, size: r.size.trim() ? n(r.size) : null })));
+  const fmt = (v: number) => new Intl.NumberFormat("en-US", { maximumFractionDigits: 2 }).format(v).replace(/,/g, "\u00a0");
+
+  return (
+    <div className="grid gap-6">
+      <form action={action} className="grid gap-4">
+        <input type="hidden" name="clientId" value={clientId} />
+        <input type="hidden" name="dashboardId" value={dashboardId} />
+        <input type="hidden" name="rows" value={payload} />
+        <label className="field w-48"><span>Month</span>
+          <input className="input" type="month" name="month" value={month} required onChange={(e) => load(e.target.value)} /></label>
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[560px] text-sm">
+            <thead>
+              <tr className="text-left text-ink-2">
+                <th className="py-1.5 pr-2 font-medium">Status</th>
+                <th className="px-2 py-1.5 text-right font-medium">Units</th>
+                <th className="px-2 py-1.5 text-right font-medium">Value (R)</th>
+                <th className="px-2 py-1.5 text-right font-medium">Size (m²)</th>
+                <th />
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((r, i) => (
+                <tr key={i}>
+                  <td className="py-1 pr-2">
+                    <div className="flex items-center gap-2">
+                      <span className="size-3 shrink-0 rounded-full" style={{ background: statusColor(r.status || "x", i) }} />
+                      <input className="input py-1.5" value={r.status} onChange={(e) => set(i, { status: e.target.value })} aria-label="Status" />
+                    </div>
+                  </td>
+                  <td className="px-2 py-1"><input className="input w-24 py-1.5 text-right" inputMode="numeric" value={r.units} onChange={(e) => set(i, { units: e.target.value })} aria-label={`${r.status} units`} /></td>
+                  <td className="px-2 py-1"><input className="input w-40 py-1.5 text-right" inputMode="decimal" value={r.value} onChange={(e) => set(i, { value: e.target.value })} aria-label={`${r.status} value`} /></td>
+                  <td className="px-2 py-1"><input className="input w-28 py-1.5 text-right" inputMode="decimal" value={r.size} onChange={(e) => set(i, { size: e.target.value })} aria-label={`${r.status} size`} /></td>
+                  <td className="py-1 pl-2"><button type="button" className="text-sm text-neg hover:underline" onClick={() => setRows(rows.filter((_, j) => j !== i))}>Remove</button></td>
+                </tr>
+              ))}
+              <tr className="border-t border-line font-semibold">
+                <td className="py-2 pr-2">Total</td>
+                <td className="px-2 py-2 text-right">{fmt(totals.units)}</td>
+                <td className="px-2 py-2 text-right">{totals.value ? `R ${fmt(totals.value)}` : "–"}</td>
+                <td className="px-2 py-2 text-right">{totals.size ? `${fmt(totals.size)} m²` : "–"}</td>
+                <td />
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <button type="button" className="justify-self-start text-sm font-medium text-brand-strong hover:underline"
+          onClick={() => setRows([...rows, { status: "", units: "", value: "", size: "" }])}>+ Add status</button>
+        <div className="flex flex-wrap items-center gap-3">
+          <button className="btn" disabled={pending}>{pending ? "Saving…" : `Save figures for ${monthLabel(month)}`}</button>
+          {say(s)}
+        </div>
+        <p className="text-sm text-ink-3">Leave value or size blank if you don’t track it; those columns are then hidden in the report. A new month starts from the latest saved figures.</p>
+      </form>
+
+      {saved.length > 0 && (
+        <div>
+          <p className="mb-2 text-sm font-medium">Saved months</p>
+          <ul className="divide-y divide-line-soft rounded-xl border border-line">
+            {saved.map((m) => {
+              const u = sales[m].rows.reduce((t, r) => t + r.units, 0);
+              return (
+                <li key={m} className="flex flex-wrap items-center justify-between gap-3 px-4 py-2.5 text-sm">
+                  <span><strong>{monthLabel(m)}</strong> <span className="text-ink-3">{u} units, {sales[m].rows.map((r) => `${r.status} ${r.units}`).join(", ")}</span></span>
+                  <span className="flex gap-4">
+                    <button type="button" className="font-medium text-brand-strong hover:underline" onClick={() => load(m)}>Edit</button>
+                    <form action={deleteSalesAction} onSubmit={(e) => { if (!confirm(`Delete the sales figures for ${monthLabel(m)}?`)) e.preventDefault(); }}>
+                      <input type="hidden" name="clientId" value={clientId} />
+                      <input type="hidden" name="dashboardId" value={dashboardId} />
+                      <input type="hidden" name="month" value={m} />
+                      <button className="text-neg hover:underline">Delete</button>
+                    </form>
+                  </span>
+                </li>
+              );
+            })}
+          </ul>
+        </div>
+      )}
     </div>
   );
 }

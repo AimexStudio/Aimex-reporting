@@ -6,7 +6,7 @@ import type { DashboardData, MonthData } from "@/lib/data";
 import { formatMetric, formatPercent, monthLabel } from "@/lib/metrics";
 import { outcomeMetric, outcomeNoun } from "@/lib/insights";
 import { ReportBody } from "./Dashboard";
-import { BreakdownTable, ChannelTiles, GoalsSection, NotesPanel, Roadmap, RoiPlanner } from "./ReportSections";
+import { BreakdownTable, ChannelTiles, GoalsSection, NotesPanel, Roadmap, RoiPlanner, SalesSection } from "./ReportSections";
 import { FullscreenButton, PrintButton } from "./ReportTools";
 
 type Section = { id: string; label: string; icon: string };
@@ -42,6 +42,7 @@ export function ReportApp({ data, companies, currentCompany, manageHref, signOut
   const sections: Section[] = [
     { id: "overview", label: group ? "Group overview" : "Overview", icon: "grid" },
     ...channels.map((c) => ({ id: `ch:${c}`, label: c, icon: /meta|facebook|instagram/i.test(c) ? "people" : /google/i.test(c) ? "search" : "chart" })),
+    ...(Object.keys(settings.sales ?? {}).length ? [{ id: "sales", label: "Sales", icon: "building" }] : []),
     ...(goals.length ? [{ id: "goals", label: "Goals", icon: "target" }] : []),
     ...(!group && hasSpend ? [{ id: "roi", label: "ROI planner", icon: "calc" }] : []),
   ];
@@ -157,6 +158,11 @@ export function ReportApp({ data, companies, currentCompany, manageHref, signOut
               })(),
             }} />
         )}
+        {active === "sales" && (
+          <SectionPage title="Sales" selected={selected} months={months} onSelect={setSelected}>
+            <SalesSection sales={settings.sales} month={selected} currency={cur} />
+          </SectionPage>
+        )}
         {active === "goals" && (
           <SectionPage title="Goals" selected={selected} months={months} onSelect={setSelected}>
             <GoalsSection goals={goals} months={months} selected={selected} currency={cur} />
@@ -242,6 +248,7 @@ function NavIcon({ name }: { name: string }) {
     search: <><circle cx="11" cy="11" r="6" {...p} /><path d="m20 20-4.5-4.5" {...p} /></>,
     chart: <><path d="M4 20V10M10 20V4M16 20v-7M22 20H2" {...p} /></>,
     target: <><circle cx="12" cy="12" r="8" {...p} /><circle cx="12" cy="12" r="4" {...p} /><circle cx="12" cy="12" r="0.8" {...p} /></>,
+    building: <><path d="M4 21V5.5L12 3l8 2.5V21M4 21h16M9 21v-4h6v4M8 8h.01M12 8h.01M16 8h.01M8 12h.01M12 12h.01M16 12h.01" {...p} /></>,
     calc: <><rect x="5" y="3" width="14" height="18" rx="2" {...p} /><path d="M8 7h8M8 11h.01M12 11h.01M16 11h.01M8 15h.01M12 15h.01M16 15h.01M8 18h8" {...p} /></>,
   };
   return <svg viewBox="0 0 24 24" className="size-[18px] shrink-0" aria-hidden="true">{d[name] ?? d.chart}</svg>;

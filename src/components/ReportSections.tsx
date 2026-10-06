@@ -7,6 +7,9 @@ import { formatMetric, formatPercent, metricDef, monthLabel, withDerived } from 
 import { outcomeMetric, outcomeNoun } from "@/lib/insights";
 import { SectionHead, benchmarkText, type Benchmark } from "./Dashboard";
 import { MetricIcon } from "./icons";
+import { Donut } from "./charts";
+import type { SalesSnapshot } from "@/db/types";
+import { previousSnapshot, snapshotFor, statusColor, summarize } from "@/lib/sales";
 
 const card = "rounded-3xl bg-surface p-6 ring-1 ring-line sm:p-8";
 
@@ -365,3 +368,101 @@ function Out({ label, value, sub, accent }: { label: string; value: string; sub:
 }
 
 export { metricDef };
+
+/* ================= sales figures (entered by hand) ================= */
+
+
+export function SalesSection({ sales, month, currency }: { sales?: Record<string, SalesSnapshot>; month: string; currency: string }) {
+  const snap = snapshotFor(sales, month);
+  if (!snap) return null;
+  const prev = previousSnapshot(sales, snap.month);
+  const { total, available, committed } = summarize(snap.rows);
+  const money = (v: number | null) => (v == null ? "–" : formatMetric("revenue", v, currency).replace(/\.00$/, ""));
+  const pct = (v: number | null, t: number | null) => (v == null || !t ? "–" : formatPercent(v / t, 0));
+  const area = (v: number | null) => (v == null ? "–" : <>{new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 }).format(v).replace(/,/g, "\u00a0")} m<sup>2</sup></>);
+  const hasValue = total.value != null;
+  const hasSize = total.size != null;
+  const changes = prev
+    ? snap.rows.map((r) => {
+        const before = prev.rows.find((p) => p.status.toLowerCase() === r.status.toLowerCase())?.units ?? 0;
+        return { status: r.status, d: r.units - before };
+      }).filter((c) => c.d !== 0)
+    : [];
+  const tiles = [
+    { label: "Total units", value: String(total.units), sub: hasValue ? `${money(total.value)} portfolio value` : "In this development" },
+    ...(committed ? [{ label: "Committed units", value: String(committed.units), sub: hasValue ? `${money(committed.value)} secured` : "Reserved, sold and further along", good: true }] : []),
+    ...(available ? [{ label: "Still available", value: String(available.units), sub: hasValue ? `${money(available.value)} to sell` : `${pct(available.units, total.units)} of all units` }] : []),
+    ...(committed && total.units ? [{ label: "Sold or committed", value: formatPercent(committed.units / total.units, 0), sub: "Of all units" }] : []),
+  ];
+  return (
+    <div className="grid grid-cols-1 gap-6">
+      <section aria-label="Sales summary" className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,220px),1fr))] gap-4">
+        {tiles.map((t) => (
+          <div key={t.label} className="rounded-2xl bg-surface p-5 ring-1 ring-line">
+            <p className="text-xs font-semibold uppercase tracking-wide text-ink-3">{t.label}</p>
+            <p className={`num mt-2 text-[1.9rem] leading-none ${"good" in t && t.good ? "text-good" : "text-ink"}`}>{t.value}</p>
+            <p className="mt-2 text-sm text-ink-2">{t.sub}</p>
+          </div>
+        ))}
+      </section>
+
+      <section className={card}>
+        <SectionHead light="Sales" bold={`as at ${monthLabel(snap.month)}`}
+          lead={snap.month !== month && month ? `The latest sales figures, from ${monthLabel(snap.month)}.` : "Units, value and size by status."} />
+        <div className="grid min-w-0 grid-cols-1 gap-8 min-[1700px]:grid-cols-[minmax(0,2fr)_minmax(360px,1fr)] min-[1700px]:items-center">
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[640px] border-separate border-spacing-[3px] text-sm">
+              <thead>
+                <tr className="text-white">
+                  <th />
+                  <th colSpan={2} className="rounded-md bg-ink-3 px-3 py-2 font-semibold">Units</th>
+                  {hasValue && <th colSpan={2} className="rounded-md bg-ink-3 px-3 py-2 font-semibold">Value</th>}
+                  {hasSize && <th colSpan={2} className="rounded-md bg-ink-3 px-3 py-2 font-semibold">Size</th>}
+                </tr>
+              </thead>
+              <tbody>
+                {snap.rows.map((r, i) => (
+                  <tr key={r.status} className="bg-line-soft">
+                    <th scope="row" className="rounded-l-md px-4 py-2.5 text-left text-base font-semibold" style={{ color: statusColor(r.status, i) }}>{r.status}</th>
+                    <td className="num px-3 py-2.5 text-right">{r.units}</td>
+                    <td className="px-3 py-2.5 text-right">{pct(r.units, total.units)}</td>
+                    {hasValue && <><td className="num px-3 py-2.5 text-right">{money(r.value)}</td><td className="px-3 py-2.5 text-right">{pct(r.value, total.value)}</td></>}
+                    {hasSize && <><td className="num px-3 py-2.5 text-right">{area(r.size)}</td><td className="rounded-r-md px-3 py-2.5 text-right">{pct(r.size, total.size)}</td></>}
+                  </tr>
+                ))}
+                <tr className="bg-line font-semibold">
+                  <th scope="row" className="rounded-l-md px-4 py-2.5 text-left">Total</th>
+                  <td className="num px-3 py-2.5 text-right">{total.units}</td>
+                  <td className="px-3 py-2.5 text-right">100%</td>
+                  {hasValue && <><td className="num px-3 py-2.5 text-right">{money(total.value)}</td><td className="px-3 py-2.5 text-right">100%</td></>}
+                  {hasSize && <><td className="num px-3 py-2.5 text-right">{area(total.size)}</td><td className="rounded-r-md px-3 py-2.5 text-right">100%</td></>}
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <div className="min-w-0 max-w-xl">
+            <h4 className="mb-4 font-semibold">Units by status</h4>
+            <SalesDonut rows={snap.rows} total={total.units} />
+          </div>
+        </div>
+        {prev && (
+          <p className="mt-6 text-sm text-ink-2">
+            <strong className="text-ink">Since {monthLabel(prev.month)}:</strong>{" "}
+            {changes.length ? changes.map((c) => `${c.status} ${c.d > 0 ? "+" : "−"}${Math.abs(c.d)} unit${Math.abs(c.d) === 1 ? "" : "s"}`).join(", ") : "no change in unit numbers"}.
+          </p>
+        )}
+      </section>
+    </div>
+  );
+}
+
+/** Donut in the status colours (the shared Donut uses brand colours, so colours are applied by order). */
+function SalesDonut({ rows, total }: { rows: { status: string; units: number }[]; total: number }) {
+  const data = rows.map((r) => ({ name: r.status, value: r.units }));
+  return (
+    <div>
+      <Donut data={data} format={(v) => `${v} unit${v === 1 ? "" : "s"}`} centerValue={String(total)} centerLabel="units"
+        colors={rows.map((r, i) => statusColor(r.status, i))} />
+    </div>
+  );
+}

@@ -107,6 +107,7 @@ The report has a sidebar with the client's logo, the reporting period, a company
 
 - **Overview:** results band (invested → leads → cost per lead, with the market benchmark), your monthly note and overview insights, figures, funnel, month-by-month charts, results by channel, the project roadmap, and every number.
 - **One page per channel** (e.g. Meta Ads, Google Ads): that channel's own results band, insights and any warning box, its figures, a full campaign / ad set table (status, budget, optimisation score, reach and frequency where the export allows, clicks, CTR, CPC, results, spend, cost per result, conversion rate), and "What worked best".
+- **Sales** (when sales figures have been entered): total, committed and available units and value, a table of units, value and size by status with percentages and totals, a donut of units by status, and what changed since the previous month's figures.
 - **Goals:** each monthly target with last month vs this month and a progress bar.
 - **ROI planner:** sliders for budget, cost per lead, lead-to-sale rate and average sale value, starting from the month's real figures, with projected leads, sales, sales value and return. Labelled as estimates.
 
@@ -116,6 +117,7 @@ The top bar shows the blended cost per lead and click-to-lead rate, plus **Full 
 
 - **Months on file → Insights and warnings:** per month, choose Overview or a channel; write insights one per line (start with "Title:" to make the title bold), and optionally a warning title and details (shown as a red box). Goals entered by hand (like reservations) get their monthly figures here too.
 - **Report settings:** market benchmark range, goals (from an uploaded figure or entered by hand, "at least" or "at most"), roadmap milestones (done, in progress, planned), and ROI planner starting values.
+- **Sales figures:** choose a month and enter units, value (R) and size (m²) for each status (Available, Reserved, Sold, Granted and Bankable by default; rename, add or remove as needed). Leave value or size blank if not tracked. A new month starts from the latest saved figures. Super admins and the client's own admins can enter them.
 - **Client logo:** PNG or JPG; it's resized automatically.
 
 ## Monthly workflow

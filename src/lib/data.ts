@@ -2,7 +2,7 @@ import "server-only";
 import crypto from "node:crypto";
 import {
   db, type Breakdowns, type ChannelEntry, type Client, type DashboardDoc, type DashboardSettings, type ImportDoc,
-  type MonthDoc, type SectionNotes, type User,
+  type MonthDoc, type SalesRow, type SectionNotes, type User,
 } from "@/db";
 import { deriveTotals, monthLabel, withDerived } from "./metrics";
 import type { ParsedRow } from "./csv";
@@ -320,6 +320,19 @@ export async function saveDashboardSettings(clientId: string, dashId: string, se
   if (!(await getDashboard(clientId, dashId))) throw new Error("That dashboard no longer exists.");
   const clean = Object.fromEntries(Object.entries(settings).filter(([, v]) => v !== undefined));
   await dashCol(clientId).doc(dashId).update(clean);
+}
+
+/** Saves (or, with null, removes) the hand-entered sales snapshot for one month of a dashboard. */
+export async function saveSalesSnapshot(clientId: string, dashId: string, month: string, rows: SalesRow[] | null) {
+  const ref = dashCol(clientId).doc(dashId);
+  await db.runTransaction(async (tx) => {
+    const s = await tx.get(ref);
+    if (!s.exists) throw new Error("That dashboard no longer exists.");
+    const sales = { ...((s.data() as DashboardDoc).sales ?? {}) };
+    if (rows) sales[month] = { month, rows, updatedAt: now() };
+    else delete sales[month];
+    tx.update(ref, { sales });
+  });
 }
 
 /** Deletes a dashboard and all its months, notes and upload history. Refuses to delete the last one. */

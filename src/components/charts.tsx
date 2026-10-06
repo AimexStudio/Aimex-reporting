@@ -19,13 +19,16 @@ const legendText = (label: string) => <span style={{ color: "#4B5563" }}>{label}
 
 /* ---------- donut ---------- */
 
-export function Donut({ data, format, centerValue, centerLabel }: {
+export function Donut({ data, format, centerValue, centerLabel, colors }: {
   data: { name: string; value: number }[];
   format: (v: number) => string;
   centerValue?: string;
   centerLabel?: string;
+  /** Optional colour per item of `data` (same order); defaults to the brand palette. */
+  colors?: string[];
 }) {
   const total = data.reduce((s, d) => s + d.value, 0);
+  const palette = colors ? data.map((d, i) => ({ d, c: colors[i] })).filter((x) => x.d.value > 0).map((x) => x.c) : PALETTE;
   const rows = data.filter((d) => d.value > 0);
   if (!rows.length) return null;
   return (
@@ -34,7 +37,7 @@ export function Donut({ data, format, centerValue, centerLabel }: {
         <ResponsiveContainer width="100%" height="100%">
           <PieChart>
             <Pie data={rows} dataKey="value" nameKey="name" innerRadius={58} outerRadius={86} paddingAngle={rows.length > 1 ? 2 : 0} stroke="none" startAngle={90} endAngle={-270}>
-              {rows.map((_, i) => <Cell key={i} fill={PALETTE[i % PALETTE.length]} />)}
+              {rows.map((_, i) => <Cell key={i} fill={palette[i % palette.length]} />)}
             </Pie>
             <Tooltip contentStyle={tooltipStyle} formatter={(v, n) => [`${format(Number(v))} (${formatPercent(Number(v) / total, 0)})`, n]} />
           </PieChart>
@@ -50,7 +53,7 @@ export function Donut({ data, format, centerValue, centerLabel }: {
         {rows.map((d, i) => (
           <li key={d.name} className="flex items-center justify-between gap-3">
             <span className="flex min-w-0 items-center gap-2">
-              <span className="size-3 shrink-0 rounded-sm" style={{ background: PALETTE[i % PALETTE.length] }} />
+              <span className="size-3 shrink-0 rounded-sm" style={{ background: palette[i % palette.length] }} />
               <span className="truncate">{d.name}</span>
             </span>
             <span className="shrink-0 text-ink-2"><span className="num text-ink">{formatPercent(d.value / total, 0)}</span> {format(d.value)}</span>
