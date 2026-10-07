@@ -160,6 +160,8 @@ What the importer does with every file:
 
 The preview lists exactly what was combined, skipped and why, before anything is saved.
 
+**Branches:** add a `branch` column to a simple sheet to break a line into branches, sites or streams. Give each branch its own row with the same `channel` (e.g. InCase / GP North, InCase / GP East). The line's total is the sum of its branches, the overview shows "InCase (4 branches)", and the line's own page gets a "By branch" donut and table. If the branches don't add up to the line's real total, add a row such as "Other enquiries" for the difference.
+
 The downloadable template is only for channels with no export of their own (for example email or offline campaigns). The unchanged template is refused, and a file can't repeat a channel and month that another file in the same upload already contains.
 
 ## How client data is kept separate

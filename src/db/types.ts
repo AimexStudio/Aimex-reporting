@@ -58,6 +58,8 @@ export interface Breakdowns {
   audiences?: AudienceRow[];
   /** Website traffic by source / medium (from Google Analytics). */
   sources?: BreakdownRow[];
+  /** A listing's branches, sites or streams (from a "branch" column). */
+  branches?: BreakdownRow[];
 }
 
 export interface ChannelEntry {

@@ -12,8 +12,8 @@ import { MetricIcon } from "./icons";
 import { AgeChart, CostTrend, Donut, PALETTE, SharePairs, SpendVsOutcome } from "./charts";
 
 /** Figures shown as tiles, in priority order. Cost per 1,000 impressions lives only in the full table. */
-const TILE_PRIORITY = ["revenue", "spend", "roas", "conversions", "cpa", "leads", "cpl", "clicks", "ctr", "lead_rate", "conv_rate", "sessions", "impressions", "reach", "followers", "video_views"];
-const CHANNEL_COLUMNS = ["spend", "revenue", "roas", "conversions", "cpa", "leads", "cpl", "clicks", "ctr", "impressions", "sessions"];
+const TILE_PRIORITY = ["revenue", "spend", "roas", "conversions", "cpa", "leads", "cpl", "landing_page_views", "clicks", "ctr", "lead_rate", "conv_rate", "sessions", "impressions", "reach", "followers", "video_views"];
+const CHANNEL_COLUMNS = ["spend", "revenue", "roas", "conversions", "cpa", "leads", "cpl", "landing_page_views", "clicks", "ctr", "impressions", "sessions"];
 const SERIES = PALETTE;
 const COST_KEY: Record<string, string> = { leads: "cpl", conversions: "cpa" };
 
@@ -335,7 +335,7 @@ function Funnel({ month, outcome, currency }: { month: MonthData; outcome: strin
   const steps = [
     { key: "impressions", label: "Times your ads were seen", value: t.impressions },
     t.clicks ? { key: "clicks", label: "Clicks to find out more", value: t.clicks } : null,
-    t.landing_page_views && outcome !== "landing_page_views" ? { key: "landing_page_views", label: "Website visits", value: t.landing_page_views } : null,
+    t.landing_page_views && outcome !== "landing_page_views" ? { key: "landing_page_views", label: "Landing page views", value: t.landing_page_views } : null,
     { key: outcome, label: outcomeNoun(outcome).replace(/^./, (c) => c.toUpperCase()), value: t[outcome] },
   ].filter((s): s is { key: string; label: string; value: number } => !!s && s.value > 0);
   if (steps.length < 2) return null;
@@ -355,7 +355,7 @@ function Funnel({ month, outcome, currency }: { month: MonthData; outcome: strin
               {rate != null && (
                 <p className="py-1 pl-4 text-xs text-ink-3">
                   <span aria-hidden="true">↓ </span>{formatPercent(rate, rate < 0.01 ? 2 : 1)}{" "}
-                  {s.key === "clicks" ? "clicked" : s.key === "landing_page_views" ? "visited your website" : `became ${outcome === "leads" ? "leads" : outcomeNoun(outcome)}`}
+                  {s.key === "clicks" ? "clicked" : s.key === "landing_page_views" ? "reached the landing page" : `became ${outcome === "leads" ? "leads" : outcomeNoun(outcome)}`}
                 </p>
               )}
               <div className="grow flex items-center justify-between gap-4 rounded-xl px-4 py-3.5"
@@ -717,6 +717,7 @@ function Channels({ month, prev, currency, unit }: { month: MonthData; prev?: Mo
                 <th scope="row" className="whitespace-nowrap py-3 pr-4 text-left font-medium">
                   <span className="mr-2 inline-block size-2.5 rounded-full align-middle" style={{ background: SERIES[i % SERIES.length] }} />
                   {c.channel}
+                  {c.breakdowns?.branches?.length ? <span className="ml-1.5 text-xs font-normal text-ink-3">({c.breakdowns.branches.length} branches)</span> : null}
                 </th>
                 {cols.map((k) => {
                   const ch = pctChange(c.metrics[k], prevBy.get(c.channel)?.[k]);
@@ -742,30 +743,28 @@ function Channels({ month, prev, currency, unit }: { month: MonthData; prev?: Mo
 
 function ChannelDonuts({ month, currency }: { month: MonthData; currency: string }) {
   const outcome = outcomeMetric(month.totals);
-  const spendData = month.channels.map((c) => ({ name: c.channel, value: c.metrics.spend ?? 0 }));
-  const outData = outcome ? month.channels.map((c) => ({ name: c.channel, value: c.metrics[outcome] ?? 0 })) : [];
+  // Colours follow each line's position, so the donuts match the dots in the table below.
+  const colors = month.channels.map((_, i) => SERIES[i % SERIES.length]);
+  const series = (k: string) => month.channels.map((c) => ({ name: c.channel, value: c.metrics[k] ?? 0 }));
+  const enough = (k: string) => month.channels.filter((c) => (c.metrics[k] ?? 0) > 0).length >= 2;
   const resultKey = month.totals.revenue ? "revenue" : outcome;
-  const resData = resultKey ? month.channels.map((c) => ({ name: c.channel, value: c.metrics[resultKey] ?? 0 })) : outData;
-  const hasSpend = spendData.filter((d) => d.value > 0).length >= 2;
-  const hasRes = resData.filter((d) => d.value > 0).length >= 1 && resultKey;
-  if (!hasSpend && !hasRes) return null;
+  const charts: { key: string; title: string; label: string }[] = [];
+  if (enough("spend")) charts.push({ key: "spend", title: "Share of spend", label: "invested" });
+  if (resultKey && (enough(resultKey) || month.channels.some((c) => (c.metrics[resultKey] ?? 0) > 0)))
+    charts.push({ key: resultKey, title: `Share of ${resultKey === "revenue" ? "revenue" : outcomeNoun(resultKey)}`, label: resultKey === "revenue" ? "revenue" : outcomeNoun(resultKey) });
+  // Landing page views are their own result: shown separately, never added to leads.
+  if (resultKey !== "landing_page_views" && enough("landing_page_views"))
+    charts.push({ key: "landing_page_views", title: "Share of landing page views", label: "page views" });
+  if (!charts.length) return null;
   return (
-    <div className="grid min-w-0 grid-cols-1 gap-8 lg:grid-cols-2">
-      {hasSpend && (
-        <div className="min-w-0">
-          <h4 className="mb-4 font-semibold">Share of spend</h4>
-          <Donut data={spendData} format={(v) => formatMetric("spend", v, currency, { compact: true })}
-            centerValue={formatMetric("spend", month.totals.spend, currency, { compact: true })} centerLabel="invested" />
+    <div className={`grid min-w-0 grid-cols-1 gap-8 ${charts.length >= 2 ? "lg:grid-cols-2" : ""} ${charts.length >= 3 ? "2xl:grid-cols-3" : ""}`}>
+      {charts.map((c) => (
+        <div key={c.key} className="min-w-0">
+          <h4 className="mb-4 font-semibold">{c.title}</h4>
+          <Donut data={series(c.key)} colors={colors} format={(v) => formatMetric(c.key, v, currency, { compact: true })}
+            centerValue={formatMetric(c.key, month.totals[c.key], currency, { compact: true })} centerLabel={c.label} />
         </div>
-      )}
-      {hasRes && resultKey && (
-        <div className="min-w-0">
-          <h4 className="mb-4 font-semibold">Share of {resultKey === "revenue" ? "revenue" : outcomeNoun(resultKey)}</h4>
-          <Donut data={resData} format={(v) => formatMetric(resultKey, v, currency, { compact: true })}
-            centerValue={formatMetric(resultKey, month.totals[resultKey], currency, { compact: true })}
-            centerLabel={resultKey === "revenue" ? "revenue" : outcomeNoun(resultKey)} />
-        </div>
-      )}
+      ))}
     </div>
   );
 }
@@ -812,12 +811,12 @@ function AllNumbers({ month, prev, currency }: { month: MonthData; prev?: MonthD
 
 function headline(m: MonthData, prev: MonthData | undefined, currency: string): string {
   const name = monthLabel(m.month).split(" ")[0];
-  const lead = ["revenue", "leads", "conversions", "calls", "conversations", "clicks", "sessions"].find((k) => m.totals[k] != null);
+  const lead = ["revenue", "leads", "conversions", "calls", "conversations", "landing_page_views", "clicks", "sessions"].find((k) => m.totals[k] != null);
   if (!lead) return `${name}’s results are in.`;
   const value = formatMetric(lead, m.totals[lead], currency);
   const noun: Record<string, string> = {
     revenue: `${value} in revenue`, leads: `${value} new leads`, conversions: `${value} conversions`, calls: `${value} calls`,
-    conversations: `${value} conversations`, clicks: `${value} clicks`, sessions: `${value} website visits`,
+    conversations: `${value} conversations`, landing_page_views: `${value} landing page views`, clicks: `${value} clicks`, sessions: `${value} website visits`,
   };
   const base = `${name} brought in ${noun[lead]}`;
   const ch = pctChange(m.totals[lead], prev?.totals[lead]);

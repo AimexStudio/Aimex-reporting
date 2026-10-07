@@ -17,7 +17,7 @@ export function outcomeNoun(metric: string, n = 2): string {
     conversions: ["conversion", "conversions"],
     calls: ["call", "calls"],
     conversations: ["conversation", "conversations"],
-    landing_page_views: ["website visit", "website visits"],
+    landing_page_views: ["landing page view", "landing page views"],
     clicks: ["click", "clicks"],
   };
   const p = plural[metric] ?? [metricDef(metric).label.toLowerCase(), metricDef(metric).label.toLowerCase()];

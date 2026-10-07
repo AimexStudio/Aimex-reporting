@@ -6,7 +6,7 @@ import type { DashboardData, MonthData } from "@/lib/data";
 import { formatMetric, formatPercent, monthLabel } from "@/lib/metrics";
 import { outcomeMetric, outcomeNoun } from "@/lib/insights";
 import { ReportBody } from "./Dashboard";
-import { BreakdownTable, ChannelTiles, GoalsSection, NotesPanel, Roadmap, RoiPlanner, SalesSection, TrafficSources } from "./ReportSections";
+import { BranchSection, BreakdownTable, ChannelTiles, GoalsSection, NotesPanel, Roadmap, RoiPlanner, SalesSection, TrafficSources } from "./ReportSections";
 import { FullscreenButton, PrintButton } from "./ReportTools";
 
 type Section = { id: string; label: string; icon: string };
@@ -158,6 +158,7 @@ export function ReportApp({ data, companies, currentCompany, manageHref, signOut
                   <>
                     <BreakdownTable b={b} currency={cur} channel={channelName} month={selected} />
                     {b.sources?.length ? <TrafficSources rows={b.sources} month={selected} /> : null}
+                    {b.branches?.length ? <BranchSection rows={b.branches} channel={channelName} month={selected} currency={cur} /> : null}
                   </>
                 ) : null;
               })(),

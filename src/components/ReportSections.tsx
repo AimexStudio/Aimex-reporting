@@ -552,3 +552,55 @@ function SalesDonut({ rows, total }: { rows: { status: string; units: number }[]
     </div>
   );
 }
+
+/* ================= branches of a listing ================= */
+
+export function BranchSection({ rows, channel, month, currency }: { rows: BreakdownRow[]; channel: string; month: string; currency: string }) {
+  const totals = rows.reduce<Record<string, number>>((t, r) => { for (const [k, v] of Object.entries(r.metrics)) t[k] = (t[k] ?? 0) + v; return t; }, {});
+  const outcome = outcomeMetric(totals);
+  if (!outcome) return null;
+  const others = ["leads", "landing_page_views", "spend"].filter((k) => k !== outcome && rows.some((r) => r.metrics[k] != null));
+  const total = totals[outcome] ?? 0;
+  const noun = outcomeNoun(outcome);
+  const top = [...rows].sort((a, b) => (b.metrics[outcome] ?? 0) - (a.metrics[outcome] ?? 0))[0];
+  return (
+    <section className={card}>
+      <SectionHead light={channel} bold="by branch"
+        lead={total && top ? `${top.label} brought the most ${noun} in ${monthLabel(month)}: ${formatPercent((top.metrics[outcome] ?? 0) / total, 0)} of ${channel}’s ${formatMetric(outcome, total, currency)}.` : undefined} />
+      <div className="grid min-w-0 grid-cols-1 gap-8 min-[1500px]:grid-cols-[minmax(420px,1fr)_minmax(0,1.4fr)]">
+        <div className="min-w-0 max-w-xl">
+          <Donut data={rows.map((r) => ({ name: r.label, value: r.metrics[outcome] ?? 0 }))} format={(v) => `${formatMetric(outcome, v, currency)} ${outcomeNoun(outcome, v)}`}
+            centerValue={formatMetric(outcome, total, currency, { compact: true })} centerLabel={noun} />
+        </div>
+        <div className="min-w-0 overflow-x-auto">
+          <table className="w-full min-w-[420px] text-sm">
+            <thead>
+              <tr className="border-b border-line bg-page/70 text-xs uppercase tracking-wide text-ink-2">
+                <th className="px-3 py-2.5 text-left font-semibold">Branch</th>
+                <th className="px-3 py-2.5 text-right font-semibold">{noun}</th>
+                <th className="px-3 py-2.5 text-right font-semibold">Share</th>
+                {others.map((k) => <th key={k} className="px-3 py-2.5 text-right font-semibold">{metricDef(k).label}</th>)}
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((r) => (
+                <tr key={r.label} className="border-b border-line-soft">
+                  <th scope="row" className="px-3 py-2.5 text-left font-medium">{r.label}</th>
+                  <td className="num px-3 py-2.5 text-right">{formatMetric(outcome, r.metrics[outcome] ?? 0, currency)}</td>
+                  <td className="px-3 py-2.5 text-right text-ink-2">{total ? formatPercent((r.metrics[outcome] ?? 0) / total, 0) : "–"}</td>
+                  {others.map((k) => <td key={k} className="px-3 py-2.5 text-right">{r.metrics[k] != null ? formatMetric(k, r.metrics[k], currency) : "–"}</td>)}
+                </tr>
+              ))}
+              <tr className="font-semibold">
+                <th scope="row" className="px-3 py-2.5 text-left">Total</th>
+                <td className="num px-3 py-2.5 text-right">{formatMetric(outcome, total, currency)}</td>
+                <td className="px-3 py-2.5 text-right">100%</td>
+                {others.map((k) => <td key={k} className="px-3 py-2.5 text-right">{totals[k] != null ? formatMetric(k, totals[k], currency) : "–"}</td>)}
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+  );
+}

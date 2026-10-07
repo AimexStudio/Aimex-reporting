@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState, useTransition } from "react";
+import { Fragment, useRef, useState, useTransition } from "react";
 import { parseMetricsCsv, type ParseResult } from "@/lib/csv";
 import { formatNumber, metricDef, monthLabel } from "@/lib/metrics";
 import { importCsvFiles, type ImportResult } from "../actions";
@@ -199,8 +199,12 @@ function FileCard({ f, onChannel, onConversions, onRemove }: {
               </select>
             </label>
           )}
-          <label className="field w-44"><span>Channel</span>
-            <input className="input py-1.5" list="channel-suggestions" value={f.channel} placeholder="e.g. Meta Ads" onChange={(e) => onChannel(e.target.value)} /></label>
+          {p.hasChannelColumn ? (
+            <p className="max-w-48 pb-1 text-sm text-ink-3">Channels are taken from the file’s channel column.</p>
+          ) : (
+            <label className="field w-44"><span>Channel</span>
+              <input className="input py-1.5" list="channel-suggestions" value={f.channel} placeholder="e.g. Meta Ads" autoComplete="off" onChange={(e) => onChannel(e.target.value)} /></label>
+          )}
           <button className="btn btn-quiet py-1.5" onClick={onRemove} aria-label={`Remove ${f.name}`}>Remove</button>
         </div>
       </div>
@@ -233,16 +237,28 @@ function PreviewTable({ p }: { p: ParseResult }) {
           </tr>
         </thead>
         <tbody>
-          {lines.map(({ m, c }) => (
-            <tr key={`${m}|${c}`} className="border-b border-line-soft last:border-0">
-              {p.months.length > 1 && <td className="px-3 py-2">{monthLabel(m, "short")}</td>}
-              <td className="px-3 py-2 font-medium">{c}</td>
-              {p.metrics.map((k) => {
-                const v = keyed.get(`${m}|${c}|${k}`);
-                return <td key={k} className="whitespace-nowrap px-3 py-2 text-right">{v == null ? "" : formatNumber(v, "ZAR", 2)}</td>;
-              })}
-            </tr>
-          ))}
+          {lines.map(({ m, c }) => {
+            const branches = p.breakdowns[`${m}|${c}`]?.branches ?? [];
+            return (
+              <Fragment key={`${m}|${c}`}>
+                <tr className="border-b border-line-soft last:border-0">
+                  {p.months.length > 1 && <td className="px-3 py-2">{monthLabel(m, "short")}</td>}
+                  <td className="px-3 py-2 font-medium">{c}{branches.length ? <span className="ml-1.5 text-xs font-normal text-ink-3">({branches.length} branches, total)</span> : null}</td>
+                  {p.metrics.map((k) => {
+                    const v = keyed.get(`${m}|${c}|${k}`);
+                    return <td key={k} className="whitespace-nowrap px-3 py-2 text-right font-medium">{v == null ? "" : formatNumber(v, "ZAR", 2)}</td>;
+                  })}
+                </tr>
+                {branches.map((b) => (
+                  <tr key={`${m}|${c}|${b.label}`} className="border-b border-line-soft text-ink-2 last:border-0">
+                    {p.months.length > 1 && <td />}
+                    <td className="py-1.5 pl-8 pr-3">↳ {b.label}</td>
+                    {p.metrics.map((k) => <td key={k} className="whitespace-nowrap px-3 py-1.5 text-right">{b.metrics[k] == null ? "" : formatNumber(b.metrics[k], "ZAR", 2)}</td>)}
+                  </tr>
+                ))}
+              </Fragment>
+            );
+          })}
         </tbody>
       </table>
     </div>

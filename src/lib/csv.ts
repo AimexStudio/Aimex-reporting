@@ -30,6 +30,8 @@ export interface ParseResult {
   sourceRows: number;
   /** File reports conversions without revenue, so they might really be leads. */
   hasConversions: boolean;
+  /** The file names its own channels (a channel column), so the form's Channel field isn't used. */
+  hasChannelColumn?: boolean;
 }
 
 // Checked in order: the first header present wins.
@@ -46,6 +48,7 @@ const DIM = {
   campaigns: ["campaign_name", "campaign"],
   age: ["age", "age_range"],
   gender: ["gender"],
+  branches: ["branch", "branch_name", "branches"],
 } as const;
 
 const aliasMap = new Map<string, string>();
@@ -292,7 +295,7 @@ export function parseMetricsCsv(text: string, formMonth?: string, defaultChannel
   const dimCol = Object.fromEntries(
     Object.entries(DIM).map(([k, names]) => [k, names.find((n) => hset.has(n))]),
   ) as Record<keyof typeof DIM, string | undefined>;
-  type BdMaps = { ads: Map<string, Record<string, number>>; adSets: Map<string, Record<string, number>>; campaigns: Map<string, Record<string, number>>; audiences: Map<string, Record<string, number>> };
+  type BdMaps = { ads: Map<string, Record<string, number>>; adSets: Map<string, Record<string, number>>; campaigns: Map<string, Record<string, number>>; audiences: Map<string, Record<string, number>>; branches: Map<string, Record<string, number>> };
   const bdMaps = new Map<string, BdMaps>();
   type Attr = { delivery?: string; resultType?: string; budget?: number; budgetType?: string; optScore?: number; reach?: number; parent?: string };
   const rowCounts = new Map<string, number>();
@@ -360,7 +363,7 @@ export function parseMetricsCsv(text: string, formMonth?: string, defaultChannel
     for (const [m, v] of Object.entries(rowMetrics)) add(m, v);
 
     // Keep the detail for "What worked best" (unique-people counts can't be split this way).
-    const bd = bdMaps.get(key) ?? { ads: new Map(), adSets: new Map(), campaigns: new Map(), audiences: new Map() };
+    const bd = bdMaps.get(key) ?? { ads: new Map(), adSets: new Map(), campaigns: new Map(), audiences: new Map(), branches: new Map() };
     bdMaps.set(key, bd);
     const additive = Object.entries(rowMetrics).filter(([m]) => !UNIQUE_COUNTS.has(m));
     const bump = (map: Map<string, Record<string, number>>, label: string, kind?: string) => {
@@ -395,6 +398,7 @@ export function parseMetricsCsv(text: string, formMonth?: string, defaultChannel
     if (dimCol.ads) bump(bd.ads, (r[dimCol.ads] ?? "").trim(), "ads");
     if (dimCol.adSets) bump(bd.adSets, (r[dimCol.adSets] ?? "").trim().replace(/\s+/g, " "), "adSets");
     if (dimCol.campaigns) bump(bd.campaigns, (r[dimCol.campaigns] ?? "").trim().replace(/\s+/g, " "), "campaigns");
+    if (dimCol.branches) bump(bd.branches, (r[dimCol.branches] ?? "").trim().replace(/\s+/g, " "));
     if (dimCol.age || dimCol.gender) {
       const age = (dimCol.age ? r[dimCol.age] : "")?.trim() || "All ages";
       const gender = (dimCol.gender ? r[dimCol.gender] : "")?.trim().toLowerCase() || "all";
@@ -489,18 +493,24 @@ export function parseMetricsCsv(text: string, formMonth?: string, defaultChannel
       ? [...bd.audiences].map(([k, metrics]) => { const [age, gender] = k.split("|"); return { age, gender, metrics }; }).slice(0, 60)
       : undefined;
     // Campaigns are kept even when there's only one, so the channel page can show its full row.
-    const b: Breakdowns = { ads: toRows(bd.ads, key, "ads"), adSets: toRows(bd.adSets, key, "adSets", 1), campaigns: toRows(bd.campaigns, key, "campaigns", 1), audiences };
+    // Branches keep the file's order (not sorted by spend), and need at least two to be a breakdown.
+    const branches = bd.branches.size >= 2 ? [...bd.branches].map(([label, metrics]) => ({ label, metrics })).slice(0, 50) : undefined;
+    const b: Breakdowns = { ads: toRows(bd.ads, key, "ads"), adSets: toRows(bd.adSets, key, "adSets", 1), campaigns: toRows(bd.campaigns, key, "campaigns", 1), audiences, branches };
     if (b.ads) kept.add("ads");
     if (b.adSets) kept.add("ad sets");
     if (b.campaigns) kept.add("campaigns");
     if (b.audiences) kept.add("age and gender");
-    if (b.ads || b.adSets || b.campaigns || b.audiences) breakdowns[key] = b;
+    if (b.branches) kept.add("branch");
+    if (b.ads || b.adSets || b.campaigns || b.audiences || b.branches) breakdowns[key] = b;
   }
-  if (kept.size) info.push(`Kept the breakdown by ${[...kept].join(", ")} for the “What worked best” section.`);
+  const forWorked = [...kept].filter((k) => k !== "branch");
+  if (forWorked.length) info.push(`Kept the breakdown by ${forWorked.join(", ")} for the “What worked best” section.`);
+  if (kept.has("branch")) info.push("Kept each listing’s branches for its “By branch” section; the listing’s total is the sum of its branches.");
 
   return {
     rows,
     breakdowns,
+    hasChannelColumn: !!channelCol,
     hasConversions: rows.some((r) => r.metric === "conversions" || (remap && r.metric === "leads")) && !rows.some((r) => r.metric === "revenue"),
     months: [...new Set(rows.map((r) => r.month))].sort(),
     channels: [...new Set(rows.map((r) => r.channel))],

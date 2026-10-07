@@ -450,7 +450,7 @@ function leadsFocus(metrics: Record<string, number>, b: Breakdowns | null): { me
   const rows = <T extends { metrics: Record<string, number> }>(list?: T[]) => list?.map((r) => ({ ...r, metrics: move(r.metrics) }));
   return {
     metrics: move(metrics),
-    breakdowns: b ? { ...b, ads: rows(b.ads), adSets: rows(b.adSets), campaigns: rows(b.campaigns), audiences: rows(b.audiences), sources: rows(b.sources) } : null,
+    breakdowns: b ? { ...b, ads: rows(b.ads), adSets: rows(b.adSets), campaigns: rows(b.campaigns), audiences: rows(b.audiences), sources: rows(b.sources), branches: rows(b.branches) } : null,
   };
 }
 

@@ -9,7 +9,11 @@ import { formatMetric, formatPercent, monthLabel } from "@/lib/metrics";
 
 export const BRAND = "#E54019";
 export const NIGHT = "#0E1320";
-export const PALETTE = [BRAND, NIGHT, "#F08A6E", "#8A94A6", "#F7C4B4", "#4B5563", "#B8BFCC"];
+// 12 distinct on-brand shades (oranges, navies, greys) so up to 12 lines never share a colour.
+export const PALETTE = [
+  BRAND, NIGHT, "#F4A88F", "#8A94A6", "#A8300F", "#3B4A66",
+  "#FBD3C5", "#C9CED8", "#6E2310", "#5F6B80", "#F27A52", "#1E293B",
+];
 const GREY = "#C9CED8";
 const AXIS = { fill: "#8A94A6", fontSize: 12 };
 const tooltipStyle = { borderRadius: 10, border: "1px solid #E2E5EA", fontFamily: "inherit", fontSize: 13 };
