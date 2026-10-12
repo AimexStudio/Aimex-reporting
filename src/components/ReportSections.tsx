@@ -91,6 +91,14 @@ export function ChannelTiles({ m, b, currency, benchmark }: {
   if (!m.clicks && m.impressions) tiles.push({ key: "impr", icon: "impressions", label: "Total impressions", value: n(m.impressions), sub: "Times your ads were shown" });
   if (m.reach) tiles.push({ key: "reach", icon: "leads", label: "Unique reach", value: n(m.reach), sub: "Different people who saw your ads" });
   if (m.clicks && m.spend != null && tiles.length < 5) tiles.push({ key: "spend2", icon: "spend", label: "Total cost", value: formatMetric("spend", m.spend, currency, { exact: true }), sub: "Total for the reporting period" });
+  if (m.listing_views != null) {
+    // Property24 agency statistics
+    tiles.length = 0;
+    tiles.push({ key: "lv", icon: "impressions", label: "Listing views", value: n(m.listing_views), sub: "Times your listings were viewed" });
+    if (m.leads != null) tiles.push({ key: "out", icon: "leads", label: "Leads", value: <>{n(m.leads)}<span className="ml-1.5 text-[0.55em] font-semibold text-ink-2">leads</span></>, sub: m.leads ? `1 lead for every ${n(Math.round(m.listing_views / m.leads))} listing views` : "Enquiries from listings", tone: "good" });
+    if (m.active_listings != null) tiles.push({ key: "al", icon: "sessions", label: "Average active listings", value: n(m.active_listings), sub: m.leads && m.active_listings ? `${(m.leads / m.active_listings).toFixed(1)} leads per listing` : "Listings live during the month" });
+    if (m.alert_emails != null) tiles.push({ key: "ae", icon: "clicks", label: "Alert emails", value: n(m.alert_emails), sub: m.alerted_listings != null ? `Featuring ${n(m.alerted_listings)} of your listings` : "Sent to property seekers" });
+  }
   if (!m.spend && m.sessions != null) {
     // Website (Google Analytics) figures
     tiles.push({ key: "sessions", icon: "sessions", label: "Website sessions", value: n(m.sessions), sub: "Visits to the website" });

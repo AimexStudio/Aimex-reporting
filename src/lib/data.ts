@@ -353,8 +353,10 @@ export interface MonthData {
   note: string | null;
   sectionNotes: Record<string, SectionNotes>;
   goalActuals: Record<string, number>;
-  /** Set when this month can't be fairly compared with the previous one (overview only). */
+  /** Set when this month can't be fairly compared with the previous one. */
   compareNote?: string;
+  /** Channels with only part of this month's figures so far. */
+  partial: Record<string, string>;
 }
 
 export interface DashboardData {
@@ -411,11 +413,13 @@ export async function getOverviewData(clientId: string): Promise<DashboardData |
       .sort((a, b) => (b.metrics.spend ?? 0) - (a.metrics.spend ?? 0));
     // Rates across companies use each company's scoped channels, so mixed channel sets stay honest.
     const scopedChannels = perDash.flatMap(({ months }) => months.find((x) => x.month === month)?.channels.map((c) => c.raw) ?? []);
-    return { month, totals: deriveTotals(scopedChannels), channels, note: null, sectionNotes: {}, goalActuals: {} };
+    const partial = Object.assign({}, ...perDash.map(({ months }) => months.find((x) => x.month === month)?.partial ?? {}));
+    return { month, totals: deriveTotals(scopedChannels), channels, note: null, sectionNotes: {}, goalActuals: {}, partial,
+      compareNote: Object.keys(partial).length ? `Some figures cover only part of ${monthLabel(month)} so far, so changes from last month aren’t shown.` : undefined };
   });
   // Month-on-month changes are only fair when the same companies have data in both months.
   months.forEach((m, i) => {
-    if (i === 0) return;
+    if (i === 0 || m.compareNote) return;
     const prev = months[i - 1];
     const now = new Set(m.channels.map((c) => c.channel));
     const before = new Set(prev.channels.map((c) => c.channel));
@@ -481,7 +485,12 @@ async function loadMonths(clientId: string, dashId: string): Promise<MonthData[]
       const channels = m.channels.map((c, i) => ({ channel: c.channel, metrics: withDerived(raws[i]), breakdowns: focused[i].breakdowns, raw: raws[i] }));
       const totals = deriveTotals(raws);
       channels.sort((a, b) => (b.metrics.spend ?? 0) - (a.metrics.spend ?? 0) || a.channel.localeCompare(b.channel));
-      return { month: m.month, totals, channels, note: m.note ?? null, sectionNotes: m.sectionNotes ?? {}, goalActuals: m.goalActuals ?? {} };
+      const partial = m.partial ?? {};
+      const parts = Object.entries(partial);
+      const compareNote = parts.length
+        ? `${parts.map(([c, r]) => `${c} covers ${r} only`).join("; ")}, so this month isn’t complete yet and changes from last month aren’t shown.`
+        : undefined;
+      return { month: m.month, totals, channels, note: m.note ?? null, sectionNotes: m.sectionNotes ?? {}, goalActuals: m.goalActuals ?? {}, partial, compareNote };
     });
 }
 
@@ -504,6 +513,7 @@ export async function saveImport(opts: {
   source?: string;
   note?: string;
   breakdowns?: Record<string, Breakdowns>;
+  partialMonths?: Record<string, string>;
 }) {
   const source = opts.source ?? "csv";
   const importId = newId();
@@ -528,7 +538,13 @@ export async function saveImport(opts: {
         ...(opts.breakdowns?.[`${month}|${channel}`] ? { breakdowns: opts.breakdowns[`${month}|${channel}`] } : {}),
       }));
       const note = opts.note && opts.months.length === 1 ? opts.note : (existing?.note ?? null);
-      const doc: MonthDoc = { month, channels: [...kept, ...added], note, updatedAt: now() };
+      // A channel's figures that cover only part of the month are marked; a full upload clears the mark.
+      const partial = { ...(existing?.partial ?? {}) };
+      for (const ch of incoming.keys()) {
+        if (opts.partialMonths?.[month]) partial[ch] = opts.partialMonths[month];
+        else delete partial[ch];
+      }
+      const doc: MonthDoc = { month, channels: [...kept, ...added], note, partial, updatedAt: now() };
       tx.set(ref, doc);
     });
     const record: Omit<ImportDoc, "id"> = {

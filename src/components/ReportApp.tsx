@@ -211,7 +211,9 @@ function SectionPage({ title, selected, months, onSelect, children }: {
 function scopeToChannel(months: MonthData[], channel: string): MonthData[] {
   return months.flatMap((m) => {
     const c = m.channels.find((x) => x.channel === channel);
-    return c ? [{ ...m, totals: c.metrics, channels: [c], note: null, compareNote: undefined }] : [];
+    const part = m.partial?.[channel];
+    return c ? [{ ...m, totals: c.metrics, channels: [c], note: null, partial: part ? { [channel]: part } : {},
+      compareNote: part ? `${channel} covers ${part} only, so this month isn’t complete yet and changes from last month aren’t shown.` : undefined }] : [];
   });
 }
 

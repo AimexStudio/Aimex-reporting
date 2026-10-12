@@ -3,7 +3,8 @@
 import crypto from "node:crypto";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
-import { hashPassword, requireAdmin, requireClientAccess } from "@/lib/auth";
+import { hashPassword, requireAdmin, requireClientAccess, requireStaff } from "@/lib/auth";
+import { pdfToText } from "@/lib/pdf-text";
 import { parseMetricsCsv } from "@/lib/csv";
 import {
   EmailTakenError, addClientUser, createClientWithLogin, createDashboard, deleteClientCascade, deleteDashboard,
@@ -148,6 +149,7 @@ export async function importCsvFiles(input: { clientId: string; dashboardId: str
       filename: f.filename || null,
       note: allMonths.size === 1 ? note : undefined,
       breakdowns: parsed.breakdowns,
+      partialMonths: parsed.partialMonths,
     });
   }
 
@@ -385,4 +387,19 @@ export async function deleteSalesAction(f: FormData) {
   if (!isMonth(month)) return;
   try { await saveSalesSnapshot(clientId, str(f, "dashboardId"), month, null); } catch { /* page shows current state */ }
   revalidatePath(`/admin/clients/${clientId}`);
+}
+
+/* ---------------- PDF reports ---------------- */
+
+/** Reads a PDF's text on the server so the upload preview can parse it like any other file. */
+export async function extractPdfText(input: { base64: string }): Promise<{ text?: string; error?: string }> {
+  await requireStaff();
+  if (input.base64.length > 14_000_000) return { error: "That PDF is too large. Keep PDF reports under 10 MB." };
+  try {
+    const bytes = new Uint8Array(Buffer.from(input.base64, "base64"));
+    if (String.fromCharCode(...bytes.slice(0, 5)) !== "%PDF-") return { error: "That file isn’t a PDF." };
+    return { text: await pdfToText(bytes) };
+  } catch {
+    return { error: "Couldn’t read that PDF. If it’s a scanned image rather than a downloaded report, it has no text to read." };
+  }
 }

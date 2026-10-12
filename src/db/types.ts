@@ -84,6 +84,8 @@ export interface MonthDoc {
   sectionNotes?: Record<string, SectionNotes>;
   /** Actual values for manually tracked goals (e.g. reservations), by goal id. */
   goalActuals?: Record<string, number>;
+  /** Channels whose figures cover only part of the month so far, e.g. {"Property24": "1st - 11th October"}. */
+  partial?: Record<string, string>;
   updatedAt: number;
 }
 

@@ -3,7 +3,7 @@
 import { Fragment, useRef, useState, useTransition } from "react";
 import { parseMetricsCsv, type ParseResult } from "@/lib/csv";
 import { formatNumber, metricDef, monthLabel } from "@/lib/metrics";
-import { importCsvFiles, type ImportResult } from "../actions";
+import { extractPdfText, importCsvFiles, type ImportResult } from "../actions";
 
 const CHANNEL_SUGGESTIONS = ["Meta Ads", "Google Ads", "TikTok Ads", "LinkedIn Ads", "Website", "Email", "Instagram", "Facebook"];
 
@@ -24,9 +24,16 @@ interface Pending {
   preview: ParseResult;
 }
 
-/** Reads UTF-8, or the UTF-16 that Google Ads' "CSV (Excel)" export uses. */
+/** Reads UTF-8, or the UTF-16 that Google Ads' "CSV (Excel)" export uses. PDFs are read on the server. */
 async function readText(f: File): Promise<string> {
   const buf = new Uint8Array(await f.arrayBuffer());
+  if (buf[0] === 0x25 && buf[1] === 0x50 && buf[2] === 0x44 && buf[3] === 0x46) {
+    let bin = "";
+    for (let i = 0; i < buf.length; i += 0x8000) bin += String.fromCharCode(...buf.subarray(i, i + 0x8000));
+    const r = await extractPdfText({ base64: btoa(bin) });
+    if (r.error) throw new Error(r.error);
+    return r.text!;
+  }
   if (buf[0] === 0xff && buf[1] === 0xfe) return new TextDecoder("utf-16le").decode(buf);
   if (buf[0] === 0xfe && buf[1] === 0xff) return new TextDecoder("utf-16be").decode(buf);
   // UTF-16 without a byte-order mark: every other byte is zero
@@ -51,7 +58,13 @@ export function UploadPanel({ clientId, dashboardId, clientName, existing }: { c
     if (!list?.length) return;
     const added: Pending[] = [];
     for (const f of Array.from(list)) {
-      const text = await readText(f);
+      let text: string;
+      try {
+        text = await readText(f);
+      } catch (e) {
+        setResult({ error: `${f.name}: ${(e as Error).message}` });
+        continue;
+      }
       const detected = parse(text, month, "").detectedSource ?? "";
       added.push({ id: crypto.randomUUID(), name: f.name, text, channel: detected, channelTouched: false, conversionsAs: "leads", preview: parse(text, month, detected, "leads") });
     }
@@ -111,13 +124,13 @@ export function UploadPanel({ clientId, dashboardId, clientName, existing }: { c
       <div className="grid gap-4 sm:grid-cols-[170px_1fr]">
         <label className="field"><span>Month</span>
           <input className="input" type="month" value={month} required onChange={(e) => changeMonth(e.target.value)} /></label>
-        <label className="field"><span>CSV files</span>
+        <label className="field"><span>CSV or PDF files</span>
           <input ref={inputRef} multiple className="input file:mr-3 file:rounded-md file:border-0 file:bg-night file:px-3 file:py-1 file:text-white"
-            type="file" accept=".csv,text/csv" onChange={(e) => addFiles(e.target.files)} /></label>
+            type="file" accept=".csv,text/csv,.pdf,application/pdf" onChange={(e) => addFiles(e.target.files)} /></label>
       </div>
       <p className="-mt-2 text-sm text-ink-3">
-        Choose one or more files, for example a Meta export and a Google Ads export for the same month. You can add more
-        files before importing. Month and channel columns inside a file take priority over these fields.{" "}
+        Choose one or more files, for example a Meta export and a Google Ads export for the same month. Property24 agency
+        statistics can be uploaded as the PDF. You can add more files before importing. Month and channel columns inside a file take priority over these fields.{" "}
         <a href="/admin/template" className="text-brand-strong underline">Download the template</a>.
       </p>
 

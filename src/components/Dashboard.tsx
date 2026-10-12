@@ -12,7 +12,7 @@ import { MetricIcon } from "./icons";
 import { AgeChart, CostTrend, Donut, PALETTE, SharePairs, SpendVsOutcome } from "./charts";
 
 /** Figures shown as tiles, in priority order. Cost per 1,000 impressions lives only in the full table. */
-const TILE_PRIORITY = ["revenue", "spend", "roas", "conversions", "cpa", "leads", "cpl", "landing_page_views", "clicks", "ctr", "lead_rate", "conv_rate", "sessions", "impressions", "reach", "followers", "video_views"];
+const TILE_PRIORITY = ["revenue", "spend", "roas", "conversions", "cpa", "leads", "cpl", "landing_page_views", "listing_views", "clicks", "ctr", "lead_rate", "conv_rate", "sessions", "impressions", "reach", "followers", "video_views"];
 const CHANNEL_COLUMNS = ["spend", "revenue", "roas", "conversions", "cpa", "leads", "cpl", "landing_page_views", "clicks", "ctr", "impressions", "sessions"];
 const SERIES = PALETTE;
 const COST_KEY: Record<string, string> = { leads: "cpl", conversions: "cpa" };
@@ -46,7 +46,9 @@ export function ReportBody({ months, currency, selected, onSelect, scopeName, un
   const idx = months.findIndex((m) => m.month === selected);
   const month = months[idx];
   // A month whose set of companies differs from last month isn't compared (group overview).
-  const prev = idx > 0 && !months[idx]?.compareNote ? months[idx - 1] : undefined;
+  // Months that can't be compared fairly (a partial month, or a different set of companies) aren't.
+  const prevPartial = idx > 0 && Object.keys(months[idx - 1]?.partial ?? {}).length > 0;
+  const prev = idx > 0 && !months[idx]?.compareNote && !prevPartial ? months[idx - 1] : undefined;
 
   if (!month) {
     return (
@@ -76,7 +78,7 @@ export function ReportBody({ months, currency, selected, onSelect, scopeName, un
         {slots?.afterHero}
         {slots?.tiles ?? <Tiles months={months} idx={idx} prev={prev} exclude={equationKeys} currency={currency} />}
         {slots?.afterTiles}
-        {outcome && month.channels.some((c) => (c.metrics[outcome] ?? 0) > 0 && c.metrics.impressions) ? <Funnel month={month} outcome={outcome} currency={currency} /> : null}
+        {outcome && month.channels.some((c) => (c.metrics[outcome] ?? 0) > 0 && (c.metrics.impressions || c.metrics.listing_views)) ? <Funnel month={month} outcome={outcome} currency={currency} /> : null}
         {showWorked && breakdowns.length > 0 && outcome && (
           <WhatWorked items={breakdowns} metric={outcome} currency={currency} showChannel={breakdowns.length > 1} />
         )}
@@ -139,6 +141,9 @@ function Hero({ months, month, prev, outcome, currency, onMonth, scopeName, benc
           <p className="mt-3 text-white/60">Your first report. From next month you’ll also see how each number has changed.</p>
         )}
         {month.compareNote && <p className="mt-3 max-w-2xl text-white/60">{month.compareNote}</p>}
+        {!month.compareNote && !prev && months.indexOf(month) > 0 && Object.keys(months[months.indexOf(month) - 1].partial ?? {}).length > 0 && (
+          <p className="mt-3 max-w-2xl text-white/60">{monthLabel(months[months.indexOf(month) - 1].month)} only has part of the month’s figures, so changes aren’t shown.</p>
+        )}
 
         {t.spend && t.revenue ? (
           <RevenueEquation month={month} prev={prev} currency={currency} />
@@ -332,8 +337,10 @@ function Funnel({ month, outcome, currency }: { month: MonthData; outcome: strin
     [outcome]: sum(outcome),
   };
   const fromChannels = scoped.length < month.channels.length ? scoped.map((c) => c.channel).join(" and ") : null;
+  const listings = !t.impressions && scoped.length > 0 && scoped.every((c) => (c.metrics.listing_views ?? 0) > 0);
   const steps = [
-    { key: "impressions", label: "Times your ads were seen", value: t.impressions },
+    listings ? { key: "listing_views", label: "Times your listings were viewed", value: sum("listing_views") }
+      : { key: "impressions", label: "Times your ads were seen", value: t.impressions },
     t.clicks ? { key: "clicks", label: "Clicks to find out more", value: t.clicks } : null,
     t.landing_page_views && outcome !== "landing_page_views" ? { key: "landing_page_views", label: "Landing page views", value: t.landing_page_views } : null,
     { key: outcome, label: outcomeNoun(outcome).replace(/^./, (c) => c.toUpperCase()), value: t[outcome] },
@@ -345,7 +352,7 @@ function Funnel({ month, outcome, currency }: { month: MonthData; outcome: strin
     <section aria-labelledby="funnel-heading" className="rounded-3xl bg-surface p-6 ring-1 ring-line sm:p-8">
       <div id="funnel-heading">
         <SectionHead light="From views to" bold={outcomeNoun(outcome)}
-          lead={`${fromChannels ? `On ${fromChannels}, 1` : "1"} in every ${new Intl.NumberFormat("en-US").format(ratio).replace(/,/g, "\u00a0")} times your ads were seen became ${outcome === "leads" ? "a lead" : `a ${outcomeNoun(outcome, 1)}`}.`} />
+          lead={`${fromChannels ? `On ${fromChannels}, 1` : "1"} in every ${new Intl.NumberFormat("en-US").format(ratio).replace(/,/g, "\u00a0")} times your ${listings ? "listings were viewed" : "ads were seen"} became ${outcome === "leads" ? "a lead" : `a ${outcomeNoun(outcome, 1)}`}.`} />
       </div>
       <ol className="grid gap-2">
         {steps.map((s, i) => {

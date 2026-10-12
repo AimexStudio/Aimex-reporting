@@ -1,6 +1,7 @@
 import Papa from "papaparse";
 import { BASE_METRICS, DERIVED_ALIASES, isMonth, monthLabel } from "./metrics";
 import { isGa4Snapshot, parseGa4Snapshot } from "./ga4";
+import { PDF_TEXT_MARK, isProperty24, parseProperty24 } from "./property24";
 
 export interface ParsedRow {
   month: string;
@@ -32,6 +33,8 @@ export interface ParseResult {
   hasConversions: boolean;
   /** The file names its own channels (a channel column), so the form's Channel field isn't used. */
   hasChannelColumn?: boolean;
+  /** Months the file only partly covers, e.g. {"2026-10": "1st - 11th Oct"}. */
+  partialMonths?: Record<string, string>;
 }
 
 // Checked in order: the first header present wins.
@@ -215,6 +218,14 @@ export interface ParseOptions {
 export function parseMetricsCsv(text: string, formMonth?: string, defaultChannel?: string, opts: ParseOptions = {}): ParseResult {
   // Google Analytics "Reports snapshot" files hold several tables; they have their own reader.
   if (isGa4Snapshot(text)) return parseGa4Snapshot(text, formMonth, defaultChannel);
+  // Text taken from a PDF: only formats with a dedicated reader are accepted.
+  if (text.startsWith(PDF_TEXT_MARK)) {
+    if (isProperty24(text)) return parseProperty24(text, formMonth, defaultChannel);
+    return {
+      rows: [], breakdowns: {}, hasConversions: false, months: [], channels: [], metrics: [], warnings: [], info: [], detectedSource: null, sourceRows: 0,
+      errors: ["This PDF isn’t a report the importer can read yet. PDFs work for Property24 agency statistics; for other platforms, download the CSV export instead."],
+    };
+  }
   let defaultMonth = formMonth;
   const warnings: string[] = [];
   const info: string[] = [];
