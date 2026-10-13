@@ -4,7 +4,8 @@
  */
 import Papa from "papaparse";
 import type { Breakdowns } from "@/db/types";
-import { isMonth, monthLabel } from "./metrics";
+import { isPeriod, monthLabel } from "./metrics";
+import { weekOf, type PeriodKind } from "./period";
 import type { ParseResult, ParsedRow } from "./csv";
 
 export function isGa4Snapshot(text: string): boolean {
@@ -35,7 +36,8 @@ function tables(text: string): Table[] {
   return out;
 }
 
-const ym = (d?: string) => (d && d.length === 8 ? `${d.slice(0, 4)}-${d.slice(4, 6)}` : null);
+const ym = (d?: string, kind: PeriodKind = "month") =>
+  d && d.length === 8 ? (kind === "week" ? weekOf(+d.slice(0, 4), +d.slice(4, 6), +d.slice(6, 8)) : `${d.slice(0, 4)}-${d.slice(4, 6)}`) : null;
 const num = (v?: string) => { const n = Number(String(v ?? "").replace(/[^\d.\-]/g, "")); return v && Number.isFinite(n) ? n : null; };
 const norm = (h: string) => h.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "");
 
@@ -45,7 +47,7 @@ const SUMMARY: Record<string, string> = {
   key_events: "key_events", conversions: "key_events", total_revenue: "revenue", engaged_sessions: "engaged_sessions",
 };
 
-export function parseGa4Snapshot(text: string, formMonth?: string, defaultChannel?: string): ParseResult {
+export function parseGa4Snapshot(text: string, formMonth?: string, defaultChannel?: string, kind: PeriodKind = "month"): ParseResult {
   const warnings: string[] = [];
   const info: string[] = [];
   const errors: string[] = [];
@@ -53,9 +55,10 @@ export function parseGa4Snapshot(text: string, formMonth?: string, defaultChanne
   const channel = defaultChannel?.trim() && !/google ads|meta/i.test(defaultChannel) ? defaultChannel.trim() : "Website";
 
   const first = ts.find((t) => t.start);
-  const sm = ym(first?.start), em = ym(first?.end);
-  let month = sm && isMonth(sm) ? sm : formMonth;
-  if (sm && em && sm !== em) warnings.push(`This report covers ${monthLabel(sm)} to ${monthLabel(em)}. Its figures are saved under ${monthLabel(sm)}. Export one calendar month at a time for exact monthly figures.`);
+  const sm = ym(first?.start, kind), em = ym(first?.end, kind);
+  let month = sm && isPeriod(sm) ? sm : formMonth;
+  if (sm && em && sm !== em && kind === "week") errors.push(`This report covers ${monthLabel(sm)} to ${monthLabel(em)}, which is more than one week. This client reports weekly, so set the Google Analytics date range to one week (Monday to Sunday) and export each week separately.`);
+  else if (sm && em && sm !== em) warnings.push(`This report covers ${monthLabel(sm)} to ${monthLabel(em)}. Its figures are saved under ${monthLabel(sm)}. ${kind === "week" ? "Export one week (Monday to Sunday) at a time for exact weekly figures." : "Export one calendar month at a time for exact monthly figures."}`);
   if (!month) { errors.push("The report has no start date. Pick the month in the upload form."); month = ""; }
   if (sm && formMonth && sm !== formMonth) info.push(`Used ${monthLabel(sm)} from the report’s dates rather than the month picked in the form.`);
 

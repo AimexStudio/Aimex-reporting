@@ -2,6 +2,7 @@ import Papa from "papaparse";
 import { BASE_METRICS, DERIVED_ALIASES, isMonth, monthLabel } from "./metrics";
 import { isGa4Snapshot, parseGa4Snapshot } from "./ga4";
 import { PDF_TEXT_MARK, isProperty24, parseProperty24 } from "./property24";
+import { isWeekId, weekOf, words, type PeriodKind } from "./period";
 
 export interface ParsedRow {
   month: string;
@@ -143,6 +144,44 @@ function monthsInLine(line: string): string[] {
   return out.filter(Boolean);
 }
 
+/** A full calendar date in a cell: 2026-10-05, 2026/10/05, 05/10/2026, 20261005, "5 October 2026", "Oct 5, 2026". */
+export function parseDay(raw: string): [number, number, number] | null {
+  const s = raw.trim();
+  let m = s.match(/^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})(?:[ t].*)?$/i);
+  if (m) return valid(+m[1], +m[2], +m[3]);
+  m = s.match(/^(\d{4})(\d{2})(\d{2})$/);
+  if (m) return valid(+m[1], +m[2], +m[3]);
+  m = s.match(/^(\d{1,2})[-/.](\d{1,2})[-/.](\d{4})$/); // day first, as used in South Africa
+  if (m) return valid(+m[3], +m[2], +m[1]);
+  const name = (n: string) => MONTH_NAMES[n.toLowerCase()] ?? Object.entries(MONTH_NAMES).find(([k]) => k.startsWith(n.toLowerCase().slice(0, 3)))?.[1];
+  m = s.match(/^(\d{1,2})\s+([A-Za-z]{3,9})\.?,?\s+(\d{4})$/);
+  if (m && name(m[2])) return valid(+m[3], name(m[2])!, +m[1]);
+  m = s.match(/^([A-Za-z]{3,9})\.?\s+(\d{1,2}),?\s+(\d{4})$/);
+  if (m && name(m[1])) return valid(+m[3], name(m[1])!, +m[2]);
+  return null;
+}
+function valid(y: number, m: number, d: number): [number, number, number] | null {
+  const t = new Date(Date.UTC(y, m - 1, d));
+  return t.getUTCFullYear() === y && t.getUTCMonth() === m - 1 && t.getUTCDate() === d ? [y, m, d] : null;
+}
+
+/** Every week mentioned as a full date in a line (e.g. a report's date range). */
+function weeksInLine(line: string): string[] {
+  const out: string[] = [];
+  const pats = [/\b\d{1,2}\s+[A-Za-z]{3,9}\.?,?\s+\d{4}\b/g, /\b[A-Za-z]{3,9}\.?\s+\d{1,2},?\s+\d{4}\b/g, /\b\d{4}[-/.]\d{1,2}[-/.]\d{1,2}\b/g, /\b\d{8}\b/g];
+  for (const re of pats) for (const m of line.matchAll(re)) { const d = parseDay(m[0]); if (d) out.push(weekOf(...d)); }
+  return out;
+}
+
+/** A cell as a reporting period: a month for monthly clients; a week (from a date or "2026-W41") for weekly ones. */
+export function parsePeriod(raw: string, kind: PeriodKind): string | null {
+  if (kind === "month") return parseMonth(raw);
+  const s = raw.trim();
+  if (isWeekId(s.toUpperCase())) return s.toUpperCase();
+  const d = parseDay(s);
+  return d ? weekOf(...d) : null;
+}
+
 /**
  * Platform exports often start with title lines before the real column headings
  * (Google Ads: "Campaign report", then a date range). Finds the heading row as the
@@ -211,16 +250,28 @@ function detectSource(h: Set<string>): string | null {
  * channel and month, text columns are ignored, and averages are recalculated.
  */
 export interface ParseOptions {
+  /** "week" for clients reporting weekly: dates are read as ISO weeks. Default "month". */
+  period?: PeriodKind;
   /** Count the platform's "conversions" as leads (e.g. Google Ads conversions that are form fills). */
   conversionsAs?: "conversions" | "leads";
 }
 
 export function parseMetricsCsv(text: string, formMonth?: string, defaultChannel?: string, opts: ParseOptions = {}): ParseResult {
   // Google Analytics "Reports snapshot" files hold several tables; they have their own reader.
-  if (isGa4Snapshot(text)) return parseGa4Snapshot(text, formMonth, defaultChannel);
+  const kind: PeriodKind = opts.period ?? "month";
+  const W = words(kind);
+  if (isGa4Snapshot(text)) return parseGa4Snapshot(text, formMonth, defaultChannel, kind);
   // Text taken from a PDF: only formats with a dedicated reader are accepted.
   if (text.startsWith(PDF_TEXT_MARK)) {
-    if (isProperty24(text)) return parseProperty24(text, formMonth, defaultChannel);
+    if (isProperty24(text)) {
+      if (kind === "week") {
+        return {
+          rows: [], breakdowns: {}, hasConversions: false, months: [], channels: [], metrics: [], warnings: [], info: [], detectedSource: "Property24", sourceRows: 0,
+          errors: ["Property24 reports only give monthly figures, so they can’t be added to a weekly report. Switch this client to monthly reporting to upload them."],
+        };
+      }
+      return parseProperty24(text, formMonth, defaultChannel);
+    }
     return {
       rows: [], breakdowns: {}, hasConversions: false, months: [], channels: [], metrics: [], warnings: [], info: [], detectedSource: null, sourceRows: 0,
       errors: ["This PDF isn’t a report the importer can read yet. PDFs work for Property24 agency statistics; for other platforms, download the CSV export instead."],
@@ -238,12 +289,14 @@ export function parseMetricsCsv(text: string, formMonth?: string, defaultChannel
     info.push(`Skipped ${preamble.length} title line${preamble.length === 1 ? "" : "s"} above the column headings (${preamble.map((l) => `“${l.replace(/^"|"$/g, "").slice(0, 60)}”`).join(", ")}).`);
   }
   // The report's own date range (e.g. "1 September 2026 - 30 September 2026") sets the month.
-  const rangeMonths = [...new Set(preamble.flatMap(monthsInLine))];
+  const rangeMonths = [...new Set(preamble.flatMap(kind === "week" ? weeksInLine : monthsInLine))];
   if (rangeMonths.length === 1) {
-    if (defaultMonth && defaultMonth !== rangeMonths[0]) info.push(`Used ${monthLabel(rangeMonths[0])} from the report’s date range rather than the month picked in the form.`);
+    if (defaultMonth && defaultMonth !== rangeMonths[0]) info.push(`Used ${monthLabel(rangeMonths[0])} from the report’s date range rather than the ${W.unit} picked in the form.`);
     defaultMonth = rangeMonths[0];
+  } else if (rangeMonths.length > 1 && kind === "week") {
+    errors.push(`This report covers ${monthLabel(rangeMonths[0])} to ${monthLabel(rangeMonths.at(-1)!)}, which is more than one week. This client reports weekly, so export one week at a time (Monday to Sunday) and upload each separately.`);
   } else if (rangeMonths.length > 1) {
-    warnings.push(`The report’s date range covers more than one month (${rangeMonths.map((m) => monthLabel(m)).join(" to ")}). Its figures are saved under ${defaultMonth ? monthLabel(defaultMonth) : "the month picked in the form"}. Export one calendar month at a time for exact monthly figures.`);
+    warnings.push(`The report’s date range covers more than one ${W.unit} (${monthLabel(rangeMonths[0])} to ${monthLabel(rangeMonths.at(-1)!)}). Its figures are saved under ${defaultMonth ? monthLabel(defaultMonth) : `the ${W.unit} picked in the form`}. Export one ${kind === "week" ? "week (Monday to Sunday)" : "calendar month"} at a time for exact ${kind === "week" ? "weekly" : "monthly"} figures.`);
   }
   const parsed = Papa.parse<Record<string, string>>(body, {
     delimiter,
@@ -324,19 +377,21 @@ export function parseMetricsCsv(text: string, formMonth?: string, defaultChannel
     let month = defaultMonth ?? "";
     if (monthCol) {
       const raw = (r[monthCol] ?? "").trim();
-      const pm = parseMonth(raw);
+      const pm = parsePeriod(raw, kind);
       if (pm) month = pm;
       else if (raw) {
-        errors.push(`Row ${line}: couldn’t read “${raw}” as a month or date. Use a format like 2026-09.`);
+        errors.push(kind === "week"
+          ? `Row ${line}: couldn’t read “${raw}” as a day or week. This client reports weekly, so use a date like 2026-10-05 or a week like 2026-W41.`
+          : `Row ${line}: couldn’t read “${raw}” as a month or date. Use a format like 2026-09.`);
         return;
       } else if (!defaultMonth) {
-        errors.push(`Row ${line}: the month is empty.`);
+        errors.push(`Row ${line}: the ${W.unit} is empty.`);
         return;
       }
     }
     if (!month) return;
     if (hset.has("reporting_ends")) {
-      const end = parseMonth(r["reporting_ends"] ?? "");
+      const end = parsePeriod(r["reporting_ends"] ?? "", kind);
       if (end && end !== month) outOfMonth.add(`${label(monthCol ?? "")} ${r[monthCol ?? ""]} to ${r["reporting_ends"]}`);
     }
 
@@ -449,8 +504,13 @@ export function parseMetricsCsv(text: string, formMonth?: string, defaultChannel
   }
   if (skippedTotals) info.push(`Skipped ${skippedTotals} total row${skippedTotals === 1 ? "" : "s"}; totals are worked out from the other rows.`);
   if (outOfMonth.size) {
-    warnings.push(`Some rows cover more than one calendar month (${[...outOfMonth][0]}). They were counted in the month they start. Export one month at a time for exact monthly figures.`);
+    if (kind === "week") {
+      errors.push(`Some rows cover more than one week (${[...outOfMonth][0]}). This client reports weekly, so export one week at a time (Monday to Sunday) and upload each separately.`);
+    } else {
+      warnings.push(`Some rows cover more than one calendar month (${[...outOfMonth][0]}). They were counted in the month they start. Export one month at a time for exact monthly figures.`);
+    }
   }
+
 
   const round = (v: number) => Math.round(v * 10_000) / 10_000; // trims float noise like 22301.90000000001
   const rows = [...agg.values()].map((r) => ({ ...r, value: round(r.value) }));

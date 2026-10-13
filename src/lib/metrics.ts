@@ -1,3 +1,4 @@
+import { isWeekId, weekLabel } from "./period";
 /**
  * Metric catalog. Pure module — safe on server and client.
  *
@@ -175,11 +176,21 @@ export function pctChange(curr?: number, prev?: number): number | null {
 
 const MONTH_NAMES = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
 
-/** "2026-09" -> "September 2026" (long) or "Sep 26" (short). Hand-rolled so every browser renders the same. */
+/**
+ * "2026-09" -> "September 2026" (long) or "Sep 26" (short).
+ * Weekly ids ("2026-W41") -> "Week 41: 5 – 11 October 2026" (long) or "5 Oct" (short).
+ * Hand-rolled so every browser renders the same.
+ */
 export function monthLabel(month: string, style: "long" | "short" = "long"): string {
+  if (isWeekId(month)) return weekLabel(month, style);
   const [y, m] = month.split("-").map(Number);
   const name = MONTH_NAMES[m - 1] ?? "?";
   return style === "long" ? `${name} ${y}` : `${name.slice(0, 3)} ${String(y).slice(2)}`;
+}
+
+/** A valid reporting period id: a month ("2026-09") or an ISO week ("2026-W41"). */
+export function isPeriod(s: string): boolean {
+  return isMonth(s) || isWeekId(s);
 }
 
 export function isMonth(s: string): boolean {

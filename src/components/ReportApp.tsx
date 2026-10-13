@@ -8,6 +8,8 @@ import { outcomeMetric, outcomeNoun } from "@/lib/insights";
 import { ReportBody } from "./Dashboard";
 import { BranchSection, BreakdownTable, ChannelTiles, GoalsSection, NotesPanel, Roadmap, RoiPlanner, SalesSection, TrafficSources } from "./ReportSections";
 import { FullscreenButton, PrintButton } from "./ReportTools";
+import { PeriodContext } from "./period-context";
+import { isWeekId, weekSpan, words } from "@/lib/period";
 
 type Section = { id: string; label: string; icon: string };
 
@@ -54,6 +56,7 @@ export function ReportApp({ data, companies, currentCompany, manageHref, signOut
   const chips = headlineChips(channelName ? channelMonths.find((m) => m.month === selected) : month, cur);
 
   return (
+    <PeriodContext.Provider value={client.period}>
     <div className="report-root min-h-dvh bg-page lg:grid lg:grid-cols-[272px_minmax(0,1fr)] print:block">
       {/* ---------- sidebar (dark column runs the full page height; the menu stays in view) ---------- */}
       <div className="bg-night print:hidden">
@@ -186,6 +189,7 @@ export function ReportApp({ data, companies, currentCompany, manageHref, signOut
         </footer>
       </div>
     </div>
+    </PeriodContext.Provider>
   );
 }
 
@@ -213,7 +217,7 @@ function scopeToChannel(months: MonthData[], channel: string): MonthData[] {
     const c = m.channels.find((x) => x.channel === channel);
     const part = m.partial?.[channel];
     return c ? [{ ...m, totals: c.metrics, channels: [c], note: null, partial: part ? { [channel]: part } : {},
-      compareNote: part ? `${channel} covers ${part} only, so this month isn’t complete yet and changes from last month aren’t shown.` : undefined }] : [];
+      compareNote: part ? `${channel} covers ${part} only, so this ${words(isWeekId(m.month) ? "week" : "month").unit} isn’t complete yet and changes from ${words(isWeekId(m.month) ? "week" : "month").last} aren’t shown.` : undefined }] : [];
   });
 }
 
@@ -237,6 +241,7 @@ function headlineChips(m: MonthData | undefined, currency: string) {
 }
 
 function periodText(month: string) {
+  if (isWeekId(month)) return weekSpan(month);
   const [y, mo] = month.split("-").map(Number);
   const last = new Date(Date.UTC(y, mo, 0)).getUTCDate();
   const [name] = monthLabel(month).split(" ");

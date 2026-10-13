@@ -9,6 +9,8 @@ import {
   audienceGrid, audienceName, bestValue, genderLabel, insightSentences, outcomeMetric, outcomeNoun, rank,
 } from "@/lib/insights";
 import { MetricIcon } from "./icons";
+import { usePeriod, useWords } from "./period-context";
+import { isWeekId, periodName, weekSpan } from "@/lib/period";
 import { AgeChart, CostTrend, Donut, PALETTE, SharePairs, SpendVsOutcome } from "./charts";
 
 /** Figures shown as tiles, in priority order. Cost per 1,000 impressions lives only in the full table. */
@@ -119,7 +121,9 @@ function Hero({ months, month, prev, outcome, currency, onMonth, scopeName, benc
   scopeName: string | null; benchmark?: Benchmark | null;
 }) {
   const t = month.totals;
-  const [name, year] = monthLabel(month.month).split(" ");
+  const w = useWords();
+  const kind = usePeriod();
+  const [name, year] = isWeekId(month.month) ? [`Week ${Number(month.month.slice(6))}`, ""] : monthLabel(month.month).split(" ");
   return (
     <section className="relative overflow-hidden bg-night text-white" aria-labelledby="hero-heading">
       <div aria-hidden="true" className="pointer-events-none absolute -right-40 -top-40 size-[520px] rounded-full bg-brand/10 blur-3xl" />
@@ -128,17 +132,18 @@ function Hero({ months, month, prev, outcome, currency, onMonth, scopeName, benc
           <div>
             {scopeName && <p className="mb-1 text-lg font-semibold text-white">{scopeName}</p>}
             <h2 id="hero-heading" className="brand-h text-white/75">
-              {name} {year} <strong className="text-brand">results</strong>
+              {name}{year ? ` ${year}` : ""} <strong className="text-brand">results</strong>
             </h2>
+            {isWeekId(month.month) && <p className="mt-1 text-sm text-white/60">{weekSpan(month.month)}</p>}
           </div>
           <MonthPicker months={months} value={month.month} onChange={onMonth} />
         </div>
 
         <p key={month.month} className="rise mt-5 max-w-[32ch] text-headline font-medium tracking-tight text-balance">
-          {headline(month, prev, currency)}
+          {headline(month, prev, currency, kind)}
         </p>
         {months.length === 1 && (
-          <p className="mt-3 text-white/60">Your first report. From next month you’ll also see how each number has changed.</p>
+          <p className="mt-3 text-white/60">Your first report. From {w.next} you’ll also see how each number has changed.</p>
         )}
         {month.compareNote && <p className="mt-3 max-w-2xl text-white/60">{month.compareNote}</p>}
         {!month.compareNote && !prev && months.indexOf(month) > 0 && Object.keys(months[months.indexOf(month) - 1].partial ?? {}).length > 0 && (
@@ -251,6 +256,7 @@ export function SectionHead({ light, bold, lead }: { light: string; bold: string
 }
 
 export function Change({ change, higherIsBetter, tone = "light", suffix }: { change: number | null; higherIsBetter: boolean | null; tone?: "light" | "dark"; suffix?: string }) {
+  const w = useWords();
   if (change == null || !Number.isFinite(change)) return null;
   if (Math.abs(change) < 0.005) return <span className={`text-sm ${tone === "dark" ? "text-white/50" : "text-ink-3"}`}>No change</span>;
   const good = higherIsBetter == null ? null : change > 0 === higherIsBetter;
@@ -264,7 +270,7 @@ export function Change({ change, higherIsBetter, tone = "light", suffix }: { cha
       <span aria-hidden="true">{change > 0 ? "▲" : "▼"}</span>
       <span className="sr-only">{change > 0 ? "Up" : "Down"}</span>
       {formatPercent(Math.abs(change), Math.abs(change) < 0.1 ? 1 : 0)}
-      <span className="font-normal opacity-80">{suffix ?? "vs last month"}</span>
+      <span className="font-normal opacity-80">{suffix ?? `vs ${w.last}`}</span>
     </span>
   );
 }
@@ -634,6 +640,7 @@ function MoneyWent({ b, metric }: { b: Breakdowns; metric: string }) {
 }
 
 function MoneyOverTime({ months, outcome, currency }: { months: MonthData[]; outcome: string; currency: string }) {
+  const w = useWords();
   const noun = outcomeNoun(outcome);
   const costKey = COST_KEY[outcome];
   const recent = months.slice(-12);
@@ -646,7 +653,7 @@ function MoneyOverTime({ months, outcome, currency }: { months: MonthData[]; out
   return (
     <section aria-labelledby="money-heading" className="grid min-w-0 grid-cols-1 gap-6 lg:grid-cols-5">
       <div className="min-w-0 rounded-3xl bg-surface p-6 ring-1 ring-line sm:p-8 lg:col-span-3">
-        <div id="money-heading"><SectionHead light="Money in," bold={`${noun} out`} lead={`What you invested each month (grey) and the ${noun} it brought in (orange).`} /></div>
+        <div id="money-heading"><SectionHead light="Money in," bold={`${noun} out`} lead={`What you invested ${w.each} (grey) and the ${noun} it brought in (orange).`} /></div>
         <SpendVsOutcome rows={rows} outcomeLabel={label} currency={currency} outcomeKey={outcome} />
       </div>
       <div className="min-w-0 rounded-3xl bg-surface p-6 ring-1 ring-line sm:p-8 lg:col-span-2">
@@ -662,6 +669,7 @@ function MoneyOverTime({ months, outcome, currency }: { months: MonthData[]; out
 function Trend({ months, selected, onSelect, currency, defaultMetric }: {
   months: MonthData[]; selected: string; onSelect: (m: string) => void; currency: string; defaultMetric: string;
 }) {
+  const w = useWords();
   const keys = useMemo(() => {
     const set = new Set(months.flatMap((m) => Object.keys(m.totals)));
     const ordered = TILE_PRIORITY.filter((k) => set.has(k));
@@ -672,7 +680,7 @@ function Trend({ months, selected, onSelect, currency, defaultMetric }: {
   return (
     <section aria-labelledby="trend-heading" className="rounded-3xl bg-surface p-6 ring-1 ring-line sm:p-8">
       <div className="flex flex-wrap items-start justify-between gap-3">
-        <div id="trend-heading"><SectionHead light="Month by" bold="month" lead="Select a bar to see that month." /></div>
+        <div id="trend-heading"><SectionHead light={w.byUnit} bold={w.unit} lead={`Select a bar to see that ${w.unit}.`} /></div>
         <select className="input w-auto py-1.5 text-sm print:hidden" value={metric} onChange={(e) => setMetric(e.target.value)} aria-label="Measure shown in chart">
           {keys.map((k) => <option key={k} value={k}>{metricDef(k).label}</option>)}
         </select>
@@ -816,8 +824,8 @@ function AllNumbers({ month, prev, currency }: { month: MonthData; prev?: MonthD
 
 /* ================= copy ================= */
 
-function headline(m: MonthData, prev: MonthData | undefined, currency: string): string {
-  const name = monthLabel(m.month).split(" ")[0];
+function headline(m: MonthData, prev: MonthData | undefined, currency: string, kind: "month" | "week" = "month"): string {
+  const name = periodName(m.month);
   const lead = ["revenue", "leads", "conversions", "calls", "conversations", "landing_page_views", "clicks", "sessions"].find((k) => m.totals[k] != null);
   if (!lead) return `${name}’s results are in.`;
   const value = formatMetric(lead, m.totals[lead], currency);
@@ -828,7 +836,7 @@ function headline(m: MonthData, prev: MonthData | undefined, currency: string): 
   const base = `${name} brought in ${noun[lead]}`;
   const ch = pctChange(m.totals[lead], prev?.totals[lead]);
   if (ch == null || !prev) return `${base}.`;
-  const prevName = monthLabel(prev.month).split(" ")[0];
+  const prevName = kind === "week" ? "the week before" : periodName(prev.month);
   if (Math.abs(ch) < 0.005) return `${base}, level with ${prevName}.`;
   return `${base}, ${Math.round(Math.abs(ch) * 100) || "<1"}% ${ch > 0 ? "more" : "fewer"} than ${prevName}.`.replace("% fewer than", lead === "revenue" ? "% less than" : "% fewer than");
 }

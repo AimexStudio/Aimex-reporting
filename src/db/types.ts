@@ -25,6 +25,8 @@ export interface Client {
   adminNotes: string | null;
   /** The client's own logo, as a small image data URL, shown in their report's sidebar. */
   logo?: string | null;
+  /** Report by calendar month (default) or by ISO week. Monthly and weekly figures are stored separately. */
+  period?: "month" | "week";
   createdAt: number;
 }
 

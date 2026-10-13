@@ -5,6 +5,7 @@ import {
   type MonthDoc, type SalesRow, type SectionNotes, type User,
 } from "@/db";
 import { deriveTotals, monthLabel, withDerived } from "./metrics";
+import { kindOf, words, type PeriodKind } from "./period";
 import type { ParsedRow } from "./csv";
 
 /* ---------------- refs ---------------- */
@@ -14,6 +15,9 @@ const usersCol = () => db.collection("users");
 const emailRef = (email: string) => db.collection("emails").doc(encodeURIComponent(email.toLowerCase()));
 const dashCol = (clientId: string) => clientsCol().doc(clientId).collection("dashboards");
 const monthsCol = (clientId: string, dashId: string) => dashCol(clientId).doc(dashId).collection("months");
+/** Monthly figures live in "months", weekly figures in "weeks", side by side. */
+const periodsCol = (clientId: string, dashId: string, kind: PeriodKind) => dashCol(clientId).doc(dashId).collection(kind === "week" ? "weeks" : "months");
+const periodDoc = (clientId: string, dashId: string, id: string) => periodsCol(clientId, dashId, kindOf(id)).doc(id);
 const importsCol = (clientId: string, dashId: string) => dashCol(clientId).doc(dashId).collection("imports");
 // Pre-dashboards layout, read only for the one-time move below.
 const legacyMonthsCol = (clientId: string) => clientsCol().doc(clientId).collection("months");
@@ -207,6 +211,10 @@ export async function updateClientFields(id: string, fields: Omit<Client, "id" |
   await clientsCol().doc(id).update({ ...fields });
 }
 
+export async function setReportingPeriod(id: string, period: PeriodKind) {
+  await clientsCol().doc(id).update({ period });
+}
+
 export async function setClientLogo(id: string, logo: string | null) {
   await clientsCol().doc(id).update({ logo });
 }
@@ -250,7 +258,7 @@ export async function listClients() {
     clientsSnap.docs.map(async (d) => {
       const c = { ...(d.data() as Omit<Client, "id">), id: d.id };
       const dashboards = await getDashboards(c.id);
-      const perDash = await Promise.all(dashboards.map(async (d) => (await monthsCol(c.id, d.id).select().get()).docs.map((m) => m.id)));
+      const perDash = await Promise.all(dashboards.map(async (d) => (await periodsCol(c.id, d.id, c.period ?? "month").select().get()).docs.map((m) => m.id)));
       const months = [...new Set(perDash.flat())].sort();
       // "behind" if any dashboard is missing its latest month
       const oldestLatest = perDash.map((ms) => ms.sort().at(-1) ?? "").sort()[0] ?? null;
@@ -360,7 +368,7 @@ export interface MonthData {
 }
 
 export interface DashboardData {
-  client: { id: string; name: string; currency: string; logo: string | null };
+  client: { id: string; name: string; currency: string; logo: string | null; period: PeriodKind };
   /** Goals, milestones, benchmark and planner defaults (single dashboards only). */
   settings: DashboardSettings;
   /** Which dashboard this is, or the combined overview. */
@@ -377,10 +385,10 @@ export async function getDashboardData(clientId: string, dashId: string): Promis
   if (!client) return null;
   const dash = await getDashboard(clientId, dashId);
   if (!dash) return null;
-  const months = await loadMonths(clientId, dashId);
+  const months = await loadMonths(clientId, dashId, client.period ?? "month");
   const { id: _i, name: _n, createdAt: _c, ...settings } = dash;
   return {
-    client: { id: client.id, name: client.name, currency: client.currency, logo: client.logo ?? null },
+    client: { id: client.id, name: client.name, currency: client.currency, logo: client.logo ?? null, period: client.period ?? "month" },
     settings,
     scope: { kind: "dashboard", id: dash.id, name: dash.name },
     months,
@@ -395,7 +403,7 @@ export async function getOverviewData(clientId: string): Promise<DashboardData |
   const client = await getClient(clientId);
   if (!client) return null;
   const dashboards = await getDashboards(clientId);
-  const perDash = await Promise.all(dashboards.map(async (d) => ({ d, months: await loadMonths(clientId, d.id) })));
+  const perDash = await Promise.all(dashboards.map(async (d) => ({ d, months: await loadMonths(clientId, d.id, client.period ?? "month") })));
   const allMonths = [...new Set(perDash.flatMap((p) => p.months.map((m) => m.month)))].sort();
   const months: MonthData[] = allMonths.map((month) => {
     const rows = perDash
@@ -426,13 +434,13 @@ export async function getOverviewData(clientId: string): Promise<DashboardData |
     const missingBefore = [...now].filter((c) => !before.has(c));
     const missingNow = [...before].filter((c) => !now.has(c));
     if (missingBefore.length) {
-      m.compareNote = `${missingBefore.join(" and ")} ${missingBefore.length === 1 ? "has" : "have"} no figures for ${monthLabel(prev.month)}, so changes from last month aren’t shown here. Each company’s own tab has its own comparison.`;
+      m.compareNote = `${missingBefore.join(" and ")} ${missingBefore.length === 1 ? "has" : "have"} no figures for ${monthLabel(prev.month)}, so changes from ${words(kindOf(m.month)).last} aren’t shown here. Each company’s own tab has its own comparison.`;
     } else if (missingNow.length) {
-      m.compareNote = `${missingNow.join(" and ")} ${missingNow.length === 1 ? "has" : "have"} no figures for ${monthLabel(m.month)} yet, so changes from last month aren’t shown here.`;
+      m.compareNote = `${missingNow.join(" and ")} ${missingNow.length === 1 ? "has" : "have"} no figures for ${monthLabel(m.month)} yet, so changes from ${words(kindOf(m.month)).last} aren’t shown here.`;
     }
   });
   return {
-    client: { id: client.id, name: client.name, currency: client.currency, logo: client.logo ?? null },
+    client: { id: client.id, name: client.name, currency: client.currency, logo: client.logo ?? null, period: client.period ?? "month" },
     settings: {},
     scope: { kind: "overview", name: "All companies" },
     months,
@@ -473,9 +481,9 @@ function withResultSpend(metrics: Record<string, number>, b?: Breakdowns | null)
   return { ...metrics, result_spend: Math.max(0, metrics.spend - excluded) };
 }
 
-async function loadMonths(clientId: string, dashId: string): Promise<MonthData[]> {
-  const snap = await monthsCol(clientId, dashId).get();
-  return snap.docs
+async function loadMonths(clientId: string, dashId: string, kind: PeriodKind = "month"): Promise<MonthData[]> {
+  const snap = await periodsCol(clientId, dashId, kind).get();
+  const list = snap.docs
     .map((d) => d.data() as MonthDoc)
     .filter((m) => m.channels?.length)
     .sort((a, b) => a.month.localeCompare(b.month))
@@ -492,6 +500,22 @@ async function loadMonths(clientId: string, dashId: string): Promise<MonthData[]
         : undefined;
       return { month: m.month, totals, channels, note: m.note ?? null, sectionNotes: m.sectionNotes ?? {}, goalActuals: m.goalActuals ?? {}, partial, compareNote };
     });
+  // Totals are only compared when the same channels have figures in both periods; otherwise
+  // a channel uploaded in one period but not the other would show up as growth or decline.
+  list.forEach((m, k) => {
+    if (k === 0 || m.compareNote) return;
+    const now = new Set(m.channels.map((c) => c.channel));
+    const before = new Set(list[k - 1].channels.map((c) => c.channel));
+    const onlyNow = [...now].filter((c) => !before.has(c));
+    const onlyBefore = [...before].filter((c) => !now.has(c));
+    if (!onlyNow.length && !onlyBefore.length) return;
+    const unit = words(kind);
+    const missing = onlyNow.length
+      ? `${onlyNow.join(" and ")} ${onlyNow.length === 1 ? "has" : "have"} no figures for ${monthLabel(list[k - 1].month)}`
+      : `${onlyBefore.join(" and ")} ${onlyBefore.length === 1 ? "has" : "have"} no figures for ${monthLabel(m.month)} yet`;
+    m.compareNote = `${missing}, so changes from ${unit.last} aren’t shown for the totals. Each channel’s own page compares like with like.`;
+  });
+  return list;
 }
 
 export async function listImports(clientId: string, dashId: string): Promise<ImportDoc[]> {
@@ -526,7 +550,7 @@ export async function saveImport(opts: {
   }
 
   await db.runTransaction(async (tx) => {
-    const refs = [...byMonth.keys()].map((m) => monthsCol(opts.clientId, opts.dashboardId).doc(m));
+    const refs = [...byMonth.keys()].map((m) => periodDoc(opts.clientId, opts.dashboardId, m));
     const snaps = await Promise.all(refs.map((r) => tx.get(r))); // all reads before any write
     refs.forEach((ref, i) => {
       const month = ref.id;
@@ -562,7 +586,7 @@ export async function saveImport(opts: {
 
 export async function saveMonthNote(clientId: string, dashId: string, month: string, body: string | null) {
   if (!(await getDashboard(clientId, dashId))) return false;
-  const ref = monthsCol(clientId, dashId).doc(month);
+  const ref = periodDoc(clientId, dashId, month);
   const s = await ref.get();
   if (!s.exists) return false; // notes belong to months that have data
   await ref.update({ note: body, updatedAt: now() });
@@ -572,7 +596,7 @@ export async function saveMonthNote(clientId: string, dashId: string, month: str
 /** Saves (or clears, with null) the written insights and warning for one section of one month. */
 export async function saveSectionNotes(clientId: string, dashId: string, month: string, section: string, notes: SectionNotes | null) {
   if (!(await getDashboard(clientId, dashId))) return false;
-  const ref = monthsCol(clientId, dashId).doc(month);
+  const ref = periodDoc(clientId, dashId, month);
   return db.runTransaction(async (tx) => {
     const s = await tx.get(ref);
     if (!s.exists) return false;
@@ -586,7 +610,7 @@ export async function saveSectionNotes(clientId: string, dashId: string, month: 
 
 export async function saveGoalActuals(clientId: string, dashId: string, month: string, actuals: Record<string, number>) {
   if (!(await getDashboard(clientId, dashId))) return false;
-  const ref = monthsCol(clientId, dashId).doc(month);
+  const ref = periodDoc(clientId, dashId, month);
   const s = await ref.get();
   if (!s.exists) return false;
   await ref.update({ goalActuals: actuals, updatedAt: now() });
@@ -595,5 +619,5 @@ export async function saveGoalActuals(clientId: string, dashId: string, month: s
 
 export async function deleteMonth(clientId: string, dashId: string, month: string) {
   if (!(await getDashboard(clientId, dashId))) return;
-  await monthsCol(clientId, dashId).doc(month).delete();
+  await periodDoc(clientId, dashId, month).delete();
 }

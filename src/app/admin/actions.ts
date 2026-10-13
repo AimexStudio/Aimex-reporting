@@ -10,10 +10,10 @@ import {
   EmailTakenError, addClientUser, createClientWithLogin, createDashboard, deleteClientCascade, deleteDashboard,
   deleteMonth as removeMonth, getClient, getDashboard, getUser, removeClientUser, renameDashboard, saveDashboardSettings,
   saveGoalActuals, saveImport, saveMonthNote as storeNote, saveSalesSnapshot, saveSectionNotes, setClientLogo, setClientUserRole, setPassword,
-  updateClientFields,
+  updateClientFields, setReportingPeriod,
 } from "@/lib/data";
 import type { Goal, Milestone, SalesRow } from "@/db/types";
-import { isMonth, monthLabel } from "@/lib/metrics";
+import { isPeriod as isMonth, isMonth as isCalendarMonth, monthLabel } from "@/lib/metrics";
 
 // Every action calls requireAdmin() itself: server actions are public endpoints,
 // so page-level checks alone would not protect them.
@@ -125,7 +125,7 @@ export async function importCsvFiles(input: { clientId: string; dashboardId: str
       f.csv,
       isMonth(f.defaultMonth) ? f.defaultMonth : undefined,
       f.defaultChannel.trim().slice(0, 60) || undefined,
-      { conversionsAs: f.conversionsAs === "leads" ? "leads" : "conversions" },
+      { conversionsAs: f.conversionsAs === "leads" ? "leads" : "conversions", period: client.period ?? "month" },
     );
     for (const e of parsed.errors) errors.push(`${name}: ${e}`);
     for (const pair of new Set(parsed.rows.map((r) => `${r.month}|${r.channel}`))) {
@@ -354,7 +354,7 @@ export async function saveSalesAction(_p: FormState, f: FormData): Promise<FormS
   await requireClientAccess(clientId);
   const dashId = str(f, "dashboardId");
   const month = str(f, "month");
-  if (!isMonth(month)) return { error: "Choose the month these figures are for." };
+  if (!isCalendarMonth(month)) return { error: "Choose the month these figures are for." };
   let rows: SalesRow[];
   try {
     rows = (JSON.parse(str(f, "rows") || "[]") as SalesRow[])
@@ -384,7 +384,7 @@ export async function deleteSalesAction(f: FormData) {
   const clientId = str(f, "clientId");
   await requireClientAccess(clientId);
   const month = str(f, "month");
-  if (!isMonth(month)) return;
+  if (!isCalendarMonth(month)) return;
   try { await saveSalesSnapshot(clientId, str(f, "dashboardId"), month, null); } catch { /* page shows current state */ }
   revalidatePath(`/admin/clients/${clientId}`);
 }
@@ -402,4 +402,14 @@ export async function extractPdfText(input: { base64: string }): Promise<{ text?
   } catch {
     return { error: "Couldn’t read that PDF. If it’s a scanned image rather than a downloaded report, it has no text to read." };
   }
+}
+
+/* ---------------- monthly or weekly reporting ---------------- */
+
+export async function setReportingPeriodAction(f: FormData) {
+  const clientId = str(f, "clientId");
+  await requireClientAccess(clientId);
+  await setReportingPeriod(clientId, str(f, "period") === "week" ? "week" : "month");
+  revalidatePath(`/admin/clients/${clientId}`);
+  revalidatePath("/admin");
 }

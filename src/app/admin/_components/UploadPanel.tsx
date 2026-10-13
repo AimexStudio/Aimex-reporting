@@ -3,6 +3,7 @@
 import { Fragment, useRef, useState, useTransition } from "react";
 import { parseMetricsCsv, type ParseResult } from "@/lib/csv";
 import { formatNumber, metricDef, monthLabel } from "@/lib/metrics";
+import { previousPeriod, weekOf, weekRange, type PeriodKind } from "@/lib/period";
 import { extractPdfText, importCsvFiles, type ImportResult } from "../actions";
 
 const CHANNEL_SUGGESTIONS = ["Meta Ads", "Google Ads", "TikTok Ads", "LinkedIn Ads", "Website", "Email", "Instagram", "Facebook"];
@@ -42,8 +43,10 @@ async function readText(f: File): Promise<string> {
 }
 
 /** existing: "YYYY-MM|Channel" pairs already saved for this client. */
-export function UploadPanel({ clientId, dashboardId, clientName, existing }: { clientId: string; dashboardId: string; clientName: string; existing: string[] }) {
-  const [month, setMonth] = useState(previousMonth());
+export function UploadPanel({ clientId, dashboardId, clientName, existing, period = "month" }: {
+  clientId: string; dashboardId: string; clientName: string; existing: string[]; period?: PeriodKind;
+}) {
+  const [month, setMonth] = useState(period === "week" ? previousPeriod("week") : previousMonth());
   const [files, setFiles] = useState<Pending[]>([]);
   const [note, setNote] = useState("");
   const [result, setResult] = useState<ImportResult | null>(null);
@@ -51,7 +54,7 @@ export function UploadPanel({ clientId, dashboardId, clientName, existing }: { c
   const inputRef = useRef<HTMLInputElement>(null);
 
   const parse = (text: string, m: string, ch: string, conv: "conversions" | "leads" = "conversions") =>
-    parseMetricsCsv(text, m, ch, { conversionsAs: conv });
+    parseMetricsCsv(text, m, ch, { conversionsAs: conv, period });
 
   async function addFiles(list: FileList | null) {
     setResult(null);
@@ -121,9 +124,17 @@ export function UploadPanel({ clientId, dashboardId, clientName, existing }: { c
 
   return (
     <div className="grid gap-5">
-      <div className="grid gap-4 sm:grid-cols-[170px_1fr]">
-        <label className="field"><span>Month</span>
-          <input className="input" type="month" value={month} required onChange={(e) => changeMonth(e.target.value)} /></label>
+      <div className={`grid gap-4 ${period === "week" ? "sm:grid-cols-[230px_1fr]" : "sm:grid-cols-[170px_1fr]"}`}>
+        <label className="field"><span>{period === "week" ? "Any day in the week" : "Month"}</span>
+          {period === "week" ? (
+            <>
+              <input className="input" type="date" required value={weekRange(month).start.toISOString().slice(0, 10)}
+                onChange={(e) => { const [y, mo, d] = e.target.value.split("-").map(Number); if (y && mo && d) changeMonth(weekOf(y, mo, d)); }} />
+              <span className="text-xs text-ink-3">{monthLabel(month)}</span>
+            </>
+          ) : (
+            <input className="input" type="month" value={month} required onChange={(e) => changeMonth(e.target.value)} />
+          )}</label>
         <label className="field"><span>CSV or PDF files</span>
           <input ref={inputRef} multiple className="input file:mr-3 file:rounded-md file:border-0 file:bg-night file:px-3 file:py-1 file:text-white"
             type="file" accept=".csv,text/csv,.pdf,application/pdf" onChange={(e) => addFiles(e.target.files)} /></label>

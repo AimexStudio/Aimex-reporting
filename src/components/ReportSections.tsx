@@ -6,6 +6,8 @@ import type { MonthData } from "@/lib/data";
 import { formatMetric, formatPercent, metricDef, monthLabel, withDerived } from "@/lib/metrics";
 import { outcomeMetric, outcomeNoun } from "@/lib/insights";
 import { SectionHead, benchmarkText, type Benchmark } from "./Dashboard";
+import { useWords } from "./period-context";
+import { monthOfPeriod, periodName } from "@/lib/period";
 import { MetricIcon } from "./icons";
 import { Donut } from "./charts";
 import type { SalesSnapshot } from "@/db/types";
@@ -294,6 +296,7 @@ function fmtGoal(g: Goal, v: number | null, currency: string) {
 }
 
 export function GoalsSection({ goals, months, selected, currency }: { goals: Goal[]; months: MonthData[]; selected: string; currency: string }) {
+  const w = useWords();
   const idx = months.findIndex((m) => m.month === selected);
   const month = months[idx];
   const prev = idx > 0 ? months[idx - 1] : undefined;
@@ -301,7 +304,7 @@ export function GoalsSection({ goals, months, selected, currency }: { goals: Goa
   return (
     <section className={card}>
       <SectionHead light="Goals" bold={`for ${selected ? monthLabel(selected) : "this month"}`}
-        lead={prev ? `Each target compared with ${monthLabel(prev.month)} and ${monthLabel(selected)}.` : "Progress against each monthly target."} />
+        lead={prev ? `Each target compared with ${monthLabel(prev.month)} and ${monthLabel(selected)}.` : `Progress against each ${w.unitly.toLowerCase()} target.`} />
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
         {goals.map((g) => {
           const now = goalActual(g, month);
@@ -314,12 +317,12 @@ export function GoalsSection({ goals, months, selected, currency }: { goals: Goa
               <div className="flex items-start justify-between gap-3">
                 <h4 className="font-semibold uppercase tracking-wide">{g.label}</h4>
                 <span className={`shrink-0 rounded-full px-2 py-0.5 text-xs font-semibold ${met ? "bg-good-soft text-good" : "bg-brand-soft text-brand-strong"}`}>
-                  {met ? "Target met" : `Target: ${g.direction === "atMost" ? "≤ " : ""}${fmtGoal(g, g.target, currency)}${g.direction === "atLeast" ? "/mo" : ""}`}
+                  {met ? "Target met" : `Target: ${g.direction === "atMost" ? "≤ " : ""}${fmtGoal(g, g.target, currency)}${g.direction === "atLeast" ? w.short : ""}`}
                 </span>
               </div>
               <div className="mt-4 grid grid-cols-2 gap-3 text-sm">
                 <div>
-                  <p className="text-ink-3">{prev ? monthLabel(prev.month) : "Last month"}</p>
+                  <p className="text-ink-3">{prev ? monthLabel(prev.month, prev.month.includes("W") ? "short" : "long") : w.last.replace(/^./, (c) => c.toUpperCase())}</p>
                   <p className="num mt-0.5 text-xl">{fmtGoal(g, before, currency)}</p>
                 </div>
                 <div className="text-right">
@@ -333,7 +336,7 @@ export function GoalsSection({ goals, months, selected, currency }: { goals: Goa
               <p className="mt-2 text-sm text-ink-2">
                 {p == null ? "No figure for this month yet."
                   : g.direction === "atMost" ? (met ? "Within target." : `${formatPercent(now! / g.target - 1, 0)} above target.`)
-                  : met ? `${Math.round(p * 100)}% of target achieved.` : `${Math.round(p * 100)}% of target achieved in ${monthLabel(selected).split(" ")[0]}.`}
+                  : met ? `${Math.round(p * 100)}% of target achieved.` : `${Math.round(p * 100)}% of target achieved in ${periodName(selected, false)}.`}
               </p>
             </div>
           );
@@ -376,6 +379,7 @@ export function RoiPlanner({ month, currency, roi }: {
   currency: string;
   roi?: { saleNoun: string; avgSaleValue: number | null; rate: number | null } | null;
 }) {
+  const w = useWords();
   const t = month?.totals ?? {};
   const outcome = outcomeMetric(t) ?? "leads";
   const noun = outcomeNoun(outcome);
@@ -426,7 +430,7 @@ export function RoiPlanner({ month, currency, roi }: {
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-5">
         <div className={`${card} grid gap-6 lg:col-span-2`}>
           <h4 className="font-semibold uppercase tracking-wide">Your assumptions</h4>
-          {slider("budget", "Monthly budget", money(v.budget), 500)}
+          {slider("budget", `${w.unitly} budget`, money(v.budget), 500)}
           {slider("cost", `Cost per ${one}`, money(v.cost), 0.5)}
           {slider("rate", `${one.replace(/^./, (c) => c.toUpperCase())} to ${saleNoun.replace(/s$/, "")} rate`, `${fmtN(v.rate, 1)}%`, 0.1)}
           {slider("value", `Average ${saleNoun.replace(/s$/, "")} value`, money(v.value), Math.max(1, Math.round(start.value / 200)))}
@@ -435,13 +439,13 @@ export function RoiPlanner({ month, currency, roi }: {
         <div className="rounded-3xl bg-night p-6 text-white sm:p-8 lg:col-span-3">
           <h4 className="font-semibold uppercase tracking-wide text-white/70">Projected <span className="text-brand">outcomes</span></h4>
           <div className="mt-6 grid gap-8 sm:grid-cols-2 [&>*]:min-w-0">
-            <Out label={`${noun.replace(/^./, (c) => c.toUpperCase())} per month`} value={fmtN(leads)} sub={`Budget ÷ cost per ${one}`} />
-            <Out label={`${saleNoun.replace(/^./, (c) => c.toUpperCase())} per month`} value={fmtN(sales, 1)} sub={`${noun.replace(/^./, (c) => c.toUpperCase())} × ${fmtN(v.rate, 1)}%`} />
+            <Out label={`${noun.replace(/^./, (c) => c.toUpperCase())} ${w.perUnit}`} value={fmtN(leads)} sub={`Budget ÷ cost per ${one}`} />
+            <Out label={`${saleNoun.replace(/^./, (c) => c.toUpperCase())} ${w.perUnit}`} value={fmtN(sales, 1)} sub={`${noun.replace(/^./, (c) => c.toUpperCase())} × ${fmtN(v.rate, 1)}%`} />
             <Out label="Sales value" value={revenue >= 1_000_000 ? formatMetric("revenue", revenue, currency, { compact: true }) : money(revenue)} sub={`${saleNoun.replace(/^./, (c) => c.toUpperCase())} × average value`} accent="good" />
             <Out label="Return on ad spend" value={`${fmtN(roas, 1)}×`} sub="Sales value ÷ budget" accent="brand" />
           </div>
           <p className="mt-8 rounded-2xl bg-white/[0.06] p-4 text-sm leading-relaxed text-white/80 ring-1 ring-white/10">
-            At {money(v.budget)} a month and {money(v.cost)} per {one}, you’d expect about {fmtN(leads)} {noun}. If {fmtN(v.rate, 1)}% become {saleNoun},
+            At {money(v.budget)} a {w.unit} and {money(v.cost)} per {one}, you’d expect about {fmtN(leads)} {noun}. If {fmtN(v.rate, 1)}% become {saleNoun},
             that’s about {fmtN(sales, 1)} {saleNoun} worth {money(revenue)}. These are estimates to help plan budgets, not promises: real results move with
             the market, the season and the creative.
           </p>
@@ -467,7 +471,7 @@ export { metricDef };
 
 
 export function SalesSection({ sales, month, currency }: { sales?: Record<string, SalesSnapshot>; month: string; currency: string }) {
-  const snap = snapshotFor(sales, month);
+  const snap = snapshotFor(sales, month ? monthOfPeriod(month) : month);
   if (!snap) return null;
   const prev = previousSnapshot(sales, snap.month);
   const { total, available, committed } = summarize(snap.rows);
@@ -502,7 +506,7 @@ export function SalesSection({ sales, month, currency }: { sales?: Record<string
 
       <section className={card}>
         <SectionHead light="Sales" bold={`as at ${monthLabel(snap.month)}`}
-          lead={snap.month !== month && month ? `The latest sales figures, from ${monthLabel(snap.month)}.` : "Units, value and size by status."} />
+          lead={snap.month !== monthOfPeriod(month) && month ? `The latest sales figures, from ${monthLabel(snap.month)}.` : "Units, value and size by status."} />
         <div className="grid min-w-0 grid-cols-1 gap-8 min-[1700px]:grid-cols-[minmax(0,2fr)_minmax(360px,1fr)] min-[1700px]:items-center">
           <div className="overflow-x-auto">
             <table className="w-full min-w-[640px] border-separate border-spacing-[3px] text-sm">

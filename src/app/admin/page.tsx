@@ -2,6 +2,7 @@ import Link from "next/link";
 import { requireAdmin } from "@/lib/auth";
 import { listClients } from "@/lib/data";
 import { monthLabel } from "@/lib/metrics";
+import { previousPeriod } from "@/lib/period";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Clients" };
@@ -17,7 +18,10 @@ export default async function AdminHome() {
   await requireAdmin();
   const clients = await listClients();
   const due = lastMonth();
-  const behind = clients.filter((c) => !c.latestMonth || c.latestMonth < due);
+  // Each client is due its own last complete period: last month, or last week for weekly clients.
+  const dueFor = (c: { period?: "month" | "week" }) => (c.period === "week" ? previousPeriod("week") : due);
+  const behind = clients.filter((c) => !c.latestMonth || c.latestMonth < dueFor(c));
+  const anyWeekly = clients.some((c) => c.period === "week");
 
   return (
     <div className="grid grid-cols-1 gap-8">
@@ -28,8 +32,8 @@ export default async function AdminHome() {
             {clients.length === 0
               ? "No clients yet."
               : behind.length === 0
-                ? clients.length === 1 ? `${monthLabel(due)} is uploaded.` : `All ${clients.length} clients have ${monthLabel(due)} uploaded.`
-                : `${behind.length} of ${clients.length} still need ${monthLabel(due)} uploaded.`}
+                ? anyWeekly ? "Every client’s latest report is uploaded." : clients.length === 1 ? `${monthLabel(due)} is uploaded.` : `All ${clients.length} clients have ${monthLabel(due)} uploaded.`
+                : anyWeekly ? `${behind.length} of ${clients.length} clients still need their latest report uploaded.` : `${behind.length} of ${clients.length} still need ${monthLabel(due)} uploaded.`}
           </p>
         </div>
         <Link href="/admin/clients/new" className="btn">Add client</Link>
@@ -55,7 +59,7 @@ export default async function AdminHome() {
             </thead>
             <tbody>
               {clients.map((c) => {
-                const isBehind = !c.latestMonth || c.latestMonth < due;
+                const isBehind = !c.latestMonth || c.latestMonth < dueFor(c);
                 return (
                   <tr key={c.id} className="border-b border-line-soft last:border-0 hover:bg-page/60">
                     <td className="px-5 py-3.5">
@@ -67,7 +71,8 @@ export default async function AdminHome() {
                     <td className="px-5 py-3.5 text-ink-2">{c.email ?? "–"}</td>
                     <td className="px-5 py-3.5">
                       {c.latestMonth ? monthLabel(c.latestMonth) : "No data yet"}
-                      {isBehind && <span className="ml-2 rounded-full bg-neg-soft px-2 py-0.5 text-xs font-medium text-neg">Needs {monthLabel(due, "short")}</span>}
+                      {isBehind && <span className="ml-2 rounded-full bg-neg-soft px-2 py-0.5 text-xs font-medium text-neg">Needs {c.period === "week" ? `week of ${monthLabel(dueFor(c), "short")}` : monthLabel(due, "short")}</span>}
+                      {c.period === "week" && <span className="ml-2 rounded-full bg-line-soft px-2 py-0.5 text-xs font-medium text-ink-2">Weekly</span>}
                     </td>
                     <td className="px-5 py-3.5 text-right">{c.monthCount}</td>
                     <td className="px-5 py-3.5 text-ink-2">

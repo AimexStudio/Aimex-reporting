@@ -67,6 +67,19 @@ The logo is `public/brand/logo-color.png` and is always shown in brand orange, o
 
 Figures that combine channels (cost per lead, ROAS, CTR, funnel steps) only use the channels that produced them, so Google spend is never divided by Meta leads.
 
+## Weekly reporting
+
+Each client has a **Reporting period** switch (Monthly / Weekly) at the top of its admin page. Super admins and the client's own admins can change it, and it applies to all of the client's dashboards.
+
+- Weeks run **Monday to Sunday** (ISO weeks, e.g. "Week 41: 5 – 11 October 2026").
+- Monthly and weekly figures are stored separately. Switching only changes which set the report shows and uploads go to; nothing is deleted, and switching back restores the other set.
+- In weekly mode the upload box asks for **any day in the week**. Platform exports set the week from their own dates: Meta's "Reporting starts", Google Ads' date range line, and Google Analytics' start and end dates. Simple sheets can put a date (`2026-10-05`) or a week (`2026-W41`) in the month column.
+- A file covering **more than one week** (for example a monthly export) is refused for weekly clients, so a month of results can't land in one week. Property24 PDFs are monthly only, so they're refused too.
+- The report reads "Week 41 results", "The week of 5 October brought in…", "vs last week", "Week by week"; goals and the ROI planner work per week. Sales figures stay monthly: a weekly report shows the figures for the month the week falls in.
+- The clients list tags weekly clients and flags them when last week hasn't been uploaded.
+
+**Comparing periods:** totals are only compared with the previous period when the same channels have figures in both. If, say, Google Ads was uploaded this week but not last, the overview explains that instead of counting Google's results as growth. Each channel's own page still compares like with like.
+
 ## Full screen and printing
 
 - The report uses the full width of the screen (capped on very wide monitors so it stays readable).
