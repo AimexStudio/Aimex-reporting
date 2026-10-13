@@ -74,7 +74,7 @@ export default async function ClientAdminPage({ params, searchParams }: {
         </div>
       </section>
 
-      <Section title={`Upload data${multi ? ` to ${dash.name}` : ""}`} lead="Add a month of results from a CSV. You’ll see a preview before anything is saved.">
+      <Section title={`Upload data${multi ? ` to ${dash.name}` : ""}`} lead="Add a month or a week of results from CSV exports or a Property24 PDF. You’ll see a preview before anything is saved.">
         <UploadPanel clientId={id} dashboardId={dash.id} clientName={multi ? dash.name : client.name}
           existing={[...data.months, ...data.weeks].flatMap((m) => m.channels.map((c) => `${m.month}|${c.channel}`))} />
       </Section>

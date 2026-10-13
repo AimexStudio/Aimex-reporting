@@ -160,7 +160,7 @@ export function UploadPanel({ clientId, dashboardId, clientName, existing }: {
 
   return (
     <div className="grid gap-5">
-      <div className={`grid gap-4 ${period === "week" ? "sm:grid-cols-[150px_230px_1fr]" : "sm:grid-cols-[150px_170px_1fr]"}`}>
+      <div className={`grid gap-4 ${period === "week" ? "sm:grid-cols-[auto_220px_1fr]" : "sm:grid-cols-[auto_200px_1fr]"}`}>
         <div className="field">
           <span>Period: {period === "week" ? "weekly" : "monthly"}</span>
           <PeriodIconToggle value={period} onChange={changePeriod} label="Upload period" />
@@ -176,12 +176,12 @@ export function UploadPanel({ clientId, dashboardId, clientName, existing }: {
             <input className="input" type="month" value={month} required onChange={(e) => changeMonth(e.target.value)} />
           )}</label>
         <label className="field"><span>CSV or PDF files</span>
-          <input ref={inputRef} multiple className="input file:mr-3 file:rounded-md file:border-0 file:bg-night file:px-3 file:py-1 file:text-white"
+          <input ref={inputRef} multiple className="input"
             type="file" accept=".csv,text/csv,.pdf,application/pdf" onChange={(e) => addFiles(e.target.files)} /></label>
       </div>
       <p className="-mt-2 text-sm text-ink-3">
-        Choose one or more files, for example a Meta export and a Google Ads export for the same month. Property24 agency
-        statistics can be uploaded as the PDF. You can add more files before importing. Month and channel columns inside a file take priority over these fields.{" "}
+        Choose one or more files, for example a Meta export and a Google Ads export for the same month or week. Property24 agency
+        statistics can be uploaded as the PDF. You can add more files before importing. Dates and channel columns inside a file take priority over these fields.{" "}
         <a href="/admin/template" className="text-brand-strong underline">Download the template</a>.
       </p>
 

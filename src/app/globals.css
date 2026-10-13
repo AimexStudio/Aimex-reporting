@@ -57,13 +57,20 @@ body { font-family: var(--font-sans); font-feature-settings: "tnum" 1, "ss01" 1;
 
 @layer components {
 /* Shared form controls */
-.field { display: grid; gap: 0.375rem; font-size: 0.875rem; }
+.field { display: grid; gap: 0.375rem; font-size: 0.875rem;  align-content: start; }
 .field > span { color: var(--color-ink-2); font-weight: 500; }
 .input {
   width: 100%; border: 1px solid var(--color-line); background: var(--color-surface);
   border-radius: 8px; padding: 0.55rem 0.75rem; font: inherit; color: var(--color-ink);
 }
 .input:focus { outline: 2px solid var(--color-accent); outline-offset: -1px; border-color: transparent; }
+/* every single-line field is the same height, so fields side by side line up */
+input.input:not([type=checkbox]):not([type=radio]), select.input { height: 2.625rem; }
+input.input[type=file] { padding: 0.3rem 0.4rem; font-size: 0.875rem; color: var(--color-ink-2); }
+input.input[type=file]::file-selector-button {
+  height: 1.95rem; margin-right: 0.75rem; padding: 0 0.85rem; border: 0; border-radius: 6px;
+  background: var(--color-night); color: white; font: inherit; font-weight: 600; cursor: pointer;
+}
 .btn {
   display: inline-flex; align-items: center; justify-content: center; gap: 0.5rem;
   border-radius: 8px; padding: 0.55rem 1rem; font-weight: 600; font-size: 0.875rem;

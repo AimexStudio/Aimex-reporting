@@ -323,7 +323,7 @@ export function SalesUpload({ clientId, dashboardId, sales }: { clientId: string
 
   return (
     <div className="grid gap-6">
-      <div className={`grid gap-4 ${period === "week" ? "sm:grid-cols-[150px_230px_1fr]" : "sm:grid-cols-[150px_170px_1fr]"}`}>
+      <div className={`grid gap-4 ${period === "week" ? "sm:grid-cols-[auto_220px_1fr]" : "sm:grid-cols-[auto_200px_1fr]"}`}>
         <div className="field">
           <span>Period: {period === "week" ? "weekly" : "monthly"}</span>
           <PeriodIconToggle value={period} onChange={changePeriod} label="Sales period" />
@@ -341,7 +341,7 @@ export function SalesUpload({ clientId, dashboardId, sales }: { clientId: string
         </label>
         <label className="field"><span>Sales file (CSV)</span>
           <input key={file ? "has" : "none"} type="file" accept=".csv,text/csv" onChange={(e) => pick(e.target.files?.[0])}
-            className="input file:mr-3 file:rounded-md file:border-0 file:bg-night file:px-3 file:py-1 file:text-white" /></label>
+            className="input" /></label>
       </div>
       <p className="-mt-2 text-sm text-ink-3">
         Upload either a summary (one row per status with units, value and size) or a unit list (one row per unit with its status,
