@@ -1,5 +1,6 @@
 /** Helpers for hand-entered sales figures. Pure: safe on server and client. */
 import type { SalesRow, SalesSnapshot } from "@/db/types";
+import { isWeekId, kindOf, type PeriodKind } from "./period";
 
 export const DEFAULT_STATUSES = ["Available", "Reserved", "Sold", "Granted", "Bankable"];
 
@@ -36,15 +37,23 @@ export function summarize(rows: SalesRow[]) {
   return { total, available, committed };
 }
 
-/** The snapshot for a month, or the latest one before it ("as at" that month). */
-export function snapshotFor(sales: Record<string, SalesSnapshot> | undefined, month: string): SalesSnapshot | null {
-  const months = Object.keys(sales ?? {}).sort();
-  if (!months.length) return null;
-  const at = months.filter((m) => !month || m <= month).at(-1) ?? months[0];
-  return sales![at];
+/** Snapshots of one kind only: monthly keys ("2026-09") or weekly keys ("2026-W41"). */
+function keysOf(sales: Record<string, SalesSnapshot> | undefined, kind: PeriodKind): string[] {
+  return Object.keys(sales ?? {}).filter((k) => (kind === "week" ? isWeekId(k) : !isWeekId(k))).sort();
 }
 
-export function previousSnapshot(sales: Record<string, SalesSnapshot> | undefined, month: string): SalesSnapshot | null {
-  const months = Object.keys(sales ?? {}).sort().filter((m) => m < month);
-  return months.length ? sales![months.at(-1)!] : null;
+/** The snapshot for a period, or the latest one of the same kind before it ("as at" that period). */
+export function snapshotFor(sales: Record<string, SalesSnapshot> | undefined, period: string, kind: PeriodKind = kindOf(period || "2000-01")): SalesSnapshot | null {
+  const keys = keysOf(sales, kind);
+  if (!keys.length) return null;
+  // "As at" a period: the latest figures up to it. Figures from a later period are never shown for an earlier one.
+  const at = period ? keys.filter((k) => k <= period).at(-1) : keys.at(-1);
+  return at ? sales![at] : null;
 }
+
+export function previousSnapshot(sales: Record<string, SalesSnapshot> | undefined, period: string): SalesSnapshot | null {
+  const keys = keysOf(sales, kindOf(period)).filter((k) => k < period);
+  return keys.length ? sales![keys.at(-1)!] : null;
+}
+
+export const hasSalesOf = (sales: Record<string, SalesSnapshot> | undefined, kind: PeriodKind) => keysOf(sales, kind).length > 0;

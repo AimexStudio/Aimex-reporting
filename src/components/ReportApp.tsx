@@ -9,6 +9,7 @@ import { ReportBody } from "./Dashboard";
 import { BranchSection, BreakdownTable, ChannelTiles, GoalsSection, NotesPanel, Roadmap, RoiPlanner, SalesSection, TrafficSources } from "./ReportSections";
 import { FullscreenButton, PrintButton } from "./ReportTools";
 import { PeriodContext } from "./period-context";
+import { PeriodIconToggle } from "./PeriodIconToggle";
 import { isWeekId, weekSpan, words, type PeriodKind } from "@/lib/period";
 
 type Section = { id: string; label: string; icon: string };
@@ -81,13 +82,9 @@ export function ReportApp({ data, companies, currentCompany, manageHref, signOut
         </div>
 
         {hasMonths && hasWeeks && (
-          <div role="radiogroup" aria-label="Report view" className="mx-5 mt-5 grid grid-cols-2 rounded-xl bg-white/[0.06] p-1 ring-1 ring-white/10 lg:mx-4">
-            {(["month", "week"] as const).map((v) => (
-              <button key={v} type="button" role="radio" aria-checked={view === v} onClick={() => switchView(v)}
-                className={`rounded-lg px-3 py-1.5 text-sm font-semibold ${view === v ? "bg-brand text-white" : "text-white/70 hover:text-white"}`}>
-                {v === "month" ? "Monthly" : "Weekly"}
-              </button>
-            ))}
+          <div className="mx-5 mt-5 flex items-center justify-between gap-3 lg:mx-4">
+            <span className="text-xs text-white/50">{view === "week" ? "Weekly" : "Monthly"} view</span>
+            <PeriodIconToggle value={view} onChange={switchView} tone="dark" label="Report view" />
           </div>
         )}
         {selected && (
@@ -188,7 +185,7 @@ export function ReportApp({ data, companies, currentCompany, manageHref, signOut
         )}
         {active === "sales" && (
           <SectionPage title="Sales" selected={selected} months={months} onSelect={setSelected}>
-            <SalesSection sales={settings.sales} month={selected} currency={cur} />
+            <SalesSection sales={settings.sales} month={selected} currency={cur} kind={view} />
           </SectionPage>
         )}
         {active === "goals" && (

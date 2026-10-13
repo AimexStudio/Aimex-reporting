@@ -69,7 +69,7 @@ Figures that combine channels (cost per lead, ROAS, CTR, funnel steps) only use 
 
 ## Weekly and monthly uploads
 
-Every upload is either **monthly** or **weekly**, chosen in the upload box's **Period** switch. Both kinds sit side by side for every client, so a client can have, say, weekly Meta and Google reports and monthly Property24 figures.
+Every upload is either **monthly** or **weekly**, chosen in the upload box's **Period** toggle (two calendar icons: month and week; their names show on hover). Both kinds sit side by side for every client, so a client can have, say, weekly Meta and Google reports and monthly Property24 figures.
 
 - **Set automatically:** when the first file's own dates fall in a single week (a Meta, Google Ads or Google Analytics export for Monday to Sunday), the upload switches to **Weekly** and says so. Anything else stays **Monthly**. You can change it before importing.
 - Weeks run **Monday to Sunday** (ISO weeks, e.g. "Week 41: 5 – 11 October 2026"). For weekly uploads the form asks for **any day in the week**; simple sheets can put a date (`2026-10-05`) or a week (`2026-W41`) in the month column.
@@ -130,7 +130,7 @@ The top bar shows the blended cost per lead and click-to-lead rate, plus **Full 
 
 - **Months on file → Insights and warnings:** per month, choose Overview or a channel; write insights one per line (start with "Title:" to make the title bold), and optionally a warning title and details (shown as a red box). Goals entered by hand (like reservations) get their monthly figures here too.
 - **Report settings:** market benchmark range, goals (from an uploaded figure or entered by hand, "at least" or "at most"), roadmap milestones (done, in progress, planned), and ROI planner starting values.
-- **Sales figures:** choose a month and enter units, value (R) and size (m²) for each status (Available, Reserved, Sold, Granted and Bankable by default; rename, add or remove as needed). Leave value or size blank if not tracked. A new month starts from the latest saved figures. Super admins and the client's own admins can enter them.
+- **Sales figures:** uploaded as a CSV, monthly or weekly (calendar icon toggle). Two layouts are read: a **summary** with one row per status (status, units, value, size; percentage columns and a Total row are ignored, so a copy of the report's own table works) or a **unit list** with one row per unit and its status, value and size, which is counted and added up per status. A preview shows the totals before saving; re-uploading a period replaces it. "Download the sales template" gives the summary layout. In the report, the Sales section follows the Monthly / Weekly view; a week without weekly sales figures shows the month's, and figures from a later period are never shown for an earlier one.
 - **Client logo:** PNG or JPG; it's resized automatically.
 
 ## Monthly workflow

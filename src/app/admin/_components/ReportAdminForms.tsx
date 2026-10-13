@@ -1,11 +1,14 @@
 "use client";
 
 import { useActionState, useState, useTransition } from "react";
-import type { Goal, Milestone, SalesRow, SalesSnapshot, SectionNotes } from "@/db/types";
-import { DEFAULT_STATUSES, statusColor } from "@/lib/sales";
+import type { Goal, Milestone, SalesSnapshot, SectionNotes } from "@/db/types";
+import { statusColor } from "@/lib/sales";
+import { parseSalesCsv } from "@/lib/sales-import";
+import { monthOfPeriod, previousPeriod, weekOf, weekRange, type PeriodKind } from "@/lib/period";
+import { PeriodIconToggle } from "@/components/PeriodIconToggle";
 import { monthLabel } from "@/lib/metrics";
 import {
-  addClientUserAction, changeClientUserRole, deleteSalesAction, removeClientUserAction, resetClientPassword, saveGoalActualsAction, saveSalesAction,
+  addClientUserAction, changeClientUserRole, deleteSalesAction, removeClientUserAction, resetClientPassword, saveGoalActualsAction, saveSalesUpload,
   saveReportSettingsAction, saveSectionNotesAction, setLogoAction, type FormState,
 } from "../actions";
 
@@ -286,98 +289,134 @@ export function LogoForm({ clientId, logo }: { clientId: string; logo: string | 
   );
 }
 
-/* ================= sales figures entered by hand ================= */
+/* ================= sales figures (uploaded, monthly or weekly) ================= */
 
-type EditRow = { status: string; units: string; value: string; size: string };
-const toEdit = (rows: SalesRow[]): EditRow[] => rows.map((r) => ({ status: r.status, units: String(r.units), value: r.value == null ? "" : String(r.value), size: r.size == null ? "" : String(r.size) }));
-const blankRows = (): EditRow[] => DEFAULT_STATUSES.map((status) => ({ status, units: "", value: "", size: "" }));
-const thisMonth = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`; };
-
-export function SalesForm({ clientId, dashboardId, sales }: { clientId: string; dashboardId: string; sales: Record<string, SalesSnapshot> }) {
+export function SalesUpload({ clientId, dashboardId, sales }: { clientId: string; dashboardId: string; sales: Record<string, SalesSnapshot> }) {
+  const [period, setPeriod] = useState<PeriodKind>("month");
+  const [id, setId] = useState(previousPeriod("month"));
+  const [file, setFile] = useState<{ name: string; text: string } | null>(null);
+  const [msg, setMsg] = useState<FormState>({});
+  const [pending, start] = useTransition();
+  const parsed = file ? parseSalesCsv(file.text) : null;
   const saved = Object.keys(sales).sort().reverse();
-  const latest = saved[0] ? sales[saved[0]] : null;
-  const [month, setMonth] = useState(thisMonth());
-  // A new month starts from the latest figures, so only what changed needs typing.
-  const [rows, setRows] = useState<EditRow[]>(sales[thisMonth()] ? toEdit(sales[thisMonth()].rows) : latest ? toEdit(latest.rows) : blankRows());
-  const [s, action, pending] = useActionState<FormState, FormData>(saveSalesAction, {});
-  const set = (i: number, p: Partial<EditRow>) => setRows(rows.map((r, j) => (j === i ? { ...r, ...p } : r)));
-  const load = (m: string) => { setMonth(m); if (sales[m]) setRows(toEdit(sales[m].rows)); };
-  const n = (v: string) => Number(v.replace(/[^\d.]/g, "")) || 0;
-  const totals = { units: rows.reduce((t, r) => t + n(r.units), 0), value: rows.reduce((t, r) => t + n(r.value), 0), size: rows.reduce((t, r) => t + n(r.size), 0) };
-  const payload = JSON.stringify(rows.map((r) => ({ status: r.status, units: n(r.units), value: r.value.trim() ? n(r.value) : null, size: r.size.trim() ? n(r.size) : null })));
+
+  function changePeriod(p: PeriodKind) {
+    setPeriod(p);
+    setId(p === "week" ? previousPeriod("week") : monthOfPeriod(id));
+  }
+  async function pick(f: File | undefined) {
+    setMsg({});
+    if (!f) return;
+    setFile({ name: f.name, text: await f.text() });
+  }
+  function save() {
+    if (!file) return;
+    start(async () => {
+      const r = await saveSalesUpload({ clientId, dashboardId, period: id, csv: file.text, filename: file.name });
+      setMsg(r);
+      if (r.ok) setFile(null);
+    });
+  }
+  const totals = parsed?.rows.reduce((t, r) => ({ units: t.units + r.units, value: t.value + (r.value ?? 0), size: t.size + (r.size ?? 0) }), { units: 0, value: 0, size: 0 });
   const fmt = (v: number) => new Intl.NumberFormat("en-US", { maximumFractionDigits: 2 }).format(v).replace(/,/g, "\u00a0");
+  const overwrite = !!sales[id];
 
   return (
     <div className="grid gap-6">
-      <form action={action} className="grid gap-4">
-        <input type="hidden" name="clientId" value={clientId} />
-        <input type="hidden" name="dashboardId" value={dashboardId} />
-        <input type="hidden" name="rows" value={payload} />
-        <label className="field w-48"><span>Month</span>
-          <input className="input" type="month" name="month" value={month} required onChange={(e) => load(e.target.value)} /></label>
-        <div className="overflow-x-auto">
-          <table className="w-full min-w-[560px] text-sm">
-            <thead>
-              <tr className="text-left text-ink-2">
-                <th className="py-1.5 pr-2 font-medium">Status</th>
-                <th className="px-2 py-1.5 text-right font-medium">Units</th>
-                <th className="px-2 py-1.5 text-right font-medium">Value (R)</th>
-                <th className="px-2 py-1.5 text-right font-medium">Size (m²)</th>
-                <th />
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((r, i) => (
-                <tr key={i}>
-                  <td className="py-1 pr-2">
-                    <div className="flex items-center gap-2">
-                      <span className="size-3 shrink-0 rounded-full" style={{ background: statusColor(r.status || "x", i) }} />
-                      <input className="input py-1.5" value={r.status} onChange={(e) => set(i, { status: e.target.value })} aria-label="Status" />
-                    </div>
-                  </td>
-                  <td className="px-2 py-1"><input className="input w-24 py-1.5 text-right" inputMode="numeric" value={r.units} onChange={(e) => set(i, { units: e.target.value })} aria-label={`${r.status} units`} /></td>
-                  <td className="px-2 py-1"><input className="input w-40 py-1.5 text-right" inputMode="decimal" value={r.value} onChange={(e) => set(i, { value: e.target.value })} aria-label={`${r.status} value`} /></td>
-                  <td className="px-2 py-1"><input className="input w-28 py-1.5 text-right" inputMode="decimal" value={r.size} onChange={(e) => set(i, { size: e.target.value })} aria-label={`${r.status} size`} /></td>
-                  <td className="py-1 pl-2"><button type="button" className="text-sm text-neg hover:underline" onClick={() => setRows(rows.filter((_, j) => j !== i))}>Remove</button></td>
-                </tr>
-              ))}
-              <tr className="border-t border-line font-semibold">
-                <td className="py-2 pr-2">Total</td>
-                <td className="px-2 py-2 text-right">{fmt(totals.units)}</td>
-                <td className="px-2 py-2 text-right">{totals.value ? `R ${fmt(totals.value)}` : "–"}</td>
-                <td className="px-2 py-2 text-right">{totals.size ? `${fmt(totals.size)} m²` : "–"}</td>
-                <td />
-              </tr>
-            </tbody>
-          </table>
+      <div className={`grid gap-4 ${period === "week" ? "sm:grid-cols-[150px_230px_1fr]" : "sm:grid-cols-[150px_170px_1fr]"}`}>
+        <div className="field">
+          <span>Period: {period === "week" ? "weekly" : "monthly"}</span>
+          <PeriodIconToggle value={period} onChange={changePeriod} label="Sales period" />
         </div>
-        <button type="button" className="justify-self-start text-sm font-medium text-brand-strong hover:underline"
-          onClick={() => setRows([...rows, { status: "", units: "", value: "", size: "" }])}>+ Add status</button>
-        <div className="flex flex-wrap items-center gap-3">
-          <button className="btn" disabled={pending}>{pending ? "Saving…" : `Save figures for ${monthLabel(month)}`}</button>
-          {say(s)}
+        <label className="field"><span>{period === "week" ? "Any day in the week" : "Month"}</span>
+          {period === "week" ? (
+            <>
+              <input className="input" type="date" required value={weekRange(id).start.toISOString().slice(0, 10)}
+                onChange={(e) => { const [y, mo, d] = e.target.value.split("-").map(Number); if (y && mo && d) setId(weekOf(y, mo, d)); }} />
+              <span className="text-xs text-ink-3">{monthLabel(id)}</span>
+            </>
+          ) : (
+            <input className="input" type="month" required value={id} onChange={(e) => e.target.value && setId(e.target.value)} />
+          )}
+        </label>
+        <label className="field"><span>Sales file (CSV)</span>
+          <input key={file ? "has" : "none"} type="file" accept=".csv,text/csv" onChange={(e) => pick(e.target.files?.[0])}
+            className="input file:mr-3 file:rounded-md file:border-0 file:bg-night file:px-3 file:py-1 file:text-white" /></label>
+      </div>
+      <p className="-mt-2 text-sm text-ink-3">
+        Upload either a summary (one row per status with units, value and size) or a unit list (one row per unit with its status,
+        value and size), which is counted per status. Percentages and totals are worked out for you.{" "}
+        <a href="/admin/template?kind=sales" className="text-brand-strong underline">Download the sales template</a>.
+      </p>
+
+      {msg.ok && <p role="status" className="rounded-lg bg-accent-soft px-3 py-2 text-sm text-accent">{msg.ok}</p>}
+      {msg.error && <p role="alert" className="rounded-lg bg-neg-soft px-3 py-2 text-sm text-neg">{msg.error}</p>}
+
+      {file && parsed && (
+        <div className="grid gap-3 rounded-xl border border-line bg-page/60 p-4">
+          <p className="font-medium">Check before saving: {file.name}</p>
+          {parsed.errors.length > 0 && <ul role="alert" className="list-disc rounded-lg bg-neg-soft px-4 py-3 pl-8 text-sm text-neg">{parsed.errors.map((e) => <li key={e}>{e}</li>)}</ul>}
+          {parsed.info.length > 0 && <p className="text-sm text-ink-3">{parsed.info.join(" ")}</p>}
+          {parsed.rows.length > 0 && (
+            <div className="overflow-x-auto rounded-lg border border-line bg-surface">
+              <table className="w-full min-w-[480px] text-sm">
+                <thead>
+                  <tr className="border-b border-line text-left text-ink-2">
+                    <th className="px-3 py-2 font-medium">Status</th>
+                    <th className="px-3 py-2 text-right font-medium">Units</th>
+                    <th className="px-3 py-2 text-right font-medium">Value (R)</th>
+                    <th className="px-3 py-2 text-right font-medium">Size (m²)</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {parsed.rows.map((r, i) => (
+                    <tr key={r.status} className="border-b border-line-soft">
+                      <td className="px-3 py-2"><span className="mr-2 inline-block size-2.5 rounded-full align-middle" style={{ background: statusColor(r.status, i) }} />{r.status}</td>
+                      <td className="px-3 py-2 text-right">{r.units}</td>
+                      <td className="px-3 py-2 text-right">{r.value == null ? "–" : fmt(r.value)}</td>
+                      <td className="px-3 py-2 text-right">{r.size == null ? "–" : fmt(r.size)}</td>
+                    </tr>
+                  ))}
+                  {totals && (
+                    <tr className="font-semibold">
+                      <td className="px-3 py-2">Total</td>
+                      <td className="px-3 py-2 text-right">{totals.units}</td>
+                      <td className="px-3 py-2 text-right">{totals.value ? `R ${fmt(totals.value)}` : "–"}</td>
+                      <td className="px-3 py-2 text-right">{totals.size ? `${fmt(totals.size)} m²` : "–"}</td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          )}
+          {overwrite && parsed.rows.length > 0 && <p className="text-sm text-ink-2">{monthLabel(id)} already has sales figures; saving replaces them.</p>}
+          <div className="flex gap-3">
+            <button className="btn" disabled={pending || parsed.errors.length > 0 || !parsed.rows.length} onClick={save}>
+              {pending ? "Saving…" : `Save sales figures for ${monthLabel(id)}`}
+            </button>
+            <button className="btn btn-quiet" onClick={() => setFile(null)} disabled={pending}>Cancel</button>
+          </div>
         </div>
-        <p className="text-sm text-ink-3">Leave value or size blank if you don’t track it; those columns are then hidden in the report. A new month starts from the latest saved figures.</p>
-      </form>
+      )}
 
       {saved.length > 0 && (
         <div>
-          <p className="mb-2 text-sm font-medium">Saved months</p>
+          <p className="mb-2 text-sm font-medium">Saved sales figures</p>
           <ul className="divide-y divide-line-soft rounded-xl border border-line">
             {saved.map((m) => {
               const u = sales[m].rows.reduce((t, r) => t + r.units, 0);
               return (
                 <li key={m} className="flex flex-wrap items-center justify-between gap-3 px-4 py-2.5 text-sm">
-                  <span><strong>{monthLabel(m)}</strong> <span className="text-ink-3">{u} units, {sales[m].rows.map((r) => `${r.status} ${r.units}`).join(", ")}</span></span>
-                  <span className="flex gap-4">
-                    <button type="button" className="font-medium text-brand-strong hover:underline" onClick={() => load(m)}>Edit</button>
-                    <form action={deleteSalesAction} onSubmit={(e) => { if (!confirm(`Delete the sales figures for ${monthLabel(m)}?`)) e.preventDefault(); }}>
-                      <input type="hidden" name="clientId" value={clientId} />
-                      <input type="hidden" name="dashboardId" value={dashboardId} />
-                      <input type="hidden" name="month" value={m} />
-                      <button className="text-neg hover:underline">Delete</button>
-                    </form>
+                  <span className="min-w-0">
+                    <strong>{monthLabel(m)}</strong>{" "}
+                    <span className="text-ink-3">{u} units, {sales[m].rows.map((r) => `${r.status} ${r.units}`).join(", ")}{sales[m].filename ? ` (${sales[m].filename})` : ""}</span>
                   </span>
+                  <form action={deleteSalesAction} onSubmit={(e) => { if (!confirm(`Delete the sales figures for ${monthLabel(m)}?`)) e.preventDefault(); }}>
+                    <input type="hidden" name="clientId" value={clientId} />
+                    <input type="hidden" name="dashboardId" value={dashboardId} />
+                    <input type="hidden" name="month" value={m} />
+                    <button className="text-neg hover:underline">Delete</button>
+                  </form>
                 </li>
               );
             })}

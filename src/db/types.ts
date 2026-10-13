@@ -126,15 +126,16 @@ export interface SalesRow {
   size: number | null;
 }
 
-/** Sales figures entered by hand for one month (a snapshot of the whole inventory). */
+/** Sales figures for one month or week (a snapshot of the whole inventory), from an upload. */
 export interface SalesSnapshot {
-  month: string; // "YYYY-MM"
+  month: string; // "YYYY-MM" or a week "YYYY-Www"
+  filename?: string | null;
   rows: SalesRow[];
   updatedAt: number;
 }
 
 export interface DashboardSettings {
-  /** Monthly sales snapshots, by "YYYY-MM". */
+  /** Sales snapshots by period: monthly ("YYYY-MM") and weekly ("YYYY-Www"). */
   sales?: Record<string, SalesSnapshot>;
   /** Market cost-per-result range for comparison, e.g. 120–200 for "Cape Town upscale property". */
   benchmark?: { min: number | null; max: number | null; label: string } | null;

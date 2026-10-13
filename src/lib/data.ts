@@ -335,13 +335,13 @@ export async function saveDashboardSettings(clientId: string, dashId: string, se
 }
 
 /** Saves (or, with null, removes) the hand-entered sales snapshot for one month of a dashboard. */
-export async function saveSalesSnapshot(clientId: string, dashId: string, month: string, rows: SalesRow[] | null) {
+export async function saveSalesSnapshot(clientId: string, dashId: string, month: string, rows: SalesRow[] | null, filename: string | null = null) {
   const ref = dashCol(clientId).doc(dashId);
   await db.runTransaction(async (tx) => {
     const s = await tx.get(ref);
     if (!s.exists) throw new Error("That dashboard no longer exists.");
     const sales = { ...((s.data() as DashboardDoc).sales ?? {}) };
-    if (rows) sales[month] = { month, rows, updatedAt: now() };
+    if (rows) sales[month] = { month, rows, filename, updatedAt: now() };
     else delete sales[month];
     tx.update(ref, { sales });
   });

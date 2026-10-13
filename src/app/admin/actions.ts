@@ -6,14 +6,15 @@ import { redirect } from "next/navigation";
 import { hashPassword, requireAdmin, requireClientAccess, requireStaff } from "@/lib/auth";
 import { pdfToText } from "@/lib/pdf-text";
 import { parseMetricsCsv } from "@/lib/csv";
+import { parseSalesCsv } from "@/lib/sales-import";
 import {
   EmailTakenError, addClientUser, createClientWithLogin, createDashboard, deleteClientCascade, deleteDashboard,
   deleteMonth as removeMonth, getClient, getDashboard, getUser, removeClientUser, renameDashboard, saveDashboardSettings,
   saveGoalActuals, saveImport, saveMonthNote as storeNote, saveSalesSnapshot, saveSectionNotes, setClientLogo, setClientUserRole, setPassword,
   updateClientFields,
 } from "@/lib/data";
-import type { Goal, Milestone, SalesRow } from "@/db/types";
-import { isPeriod as isMonth, isMonth as isCalendarMonth, monthLabel } from "@/lib/metrics";
+import type { Goal, Milestone } from "@/db/types";
+import { isPeriod as isMonth, monthLabel } from "@/lib/metrics";
 
 // Every action calls requireAdmin() itself: server actions are public endpoints,
 // so page-level checks alone would not protect them.
@@ -349,42 +350,30 @@ export async function setLogoAction(input: { clientId: string; dataUrl: string |
 
 /* ---------------- sales figures entered by hand ---------------- */
 
-export async function saveSalesAction(_p: FormState, f: FormData): Promise<FormState> {
-  const clientId = str(f, "clientId");
-  await requireClientAccess(clientId);
-  const dashId = str(f, "dashboardId");
-  const month = str(f, "month");
-  if (!isCalendarMonth(month)) return { error: "Choose the month these figures are for." };
-  let rows: SalesRow[];
+/**
+ * Saves sales figures from an uploaded file for one month or week. The file is read again
+ * on the server; the browser's preview is never trusted.
+ */
+export async function saveSalesUpload(input: { clientId: string; dashboardId: string; period: string; csv: string; filename: string }): Promise<FormState> {
+  await requireClientAccess(String(input.clientId));
+  if (!isMonth(input.period)) return { error: "Choose the month or week these figures are for." };
+  if (input.csv.length > 4_000_000) return { error: "That file is too large. Keep sales files under 4 MB." };
+  const parsed = parseSalesCsv(input.csv);
+  if (parsed.errors.length) return { error: parsed.errors.join(" ") };
   try {
-    rows = (JSON.parse(str(f, "rows") || "[]") as SalesRow[])
-      .map((r) => ({
-        status: String(r.status ?? "").trim().slice(0, 40),
-        units: Math.max(0, Math.round(Number(r.units) || 0)),
-        value: r.value == null || String(r.value) === "" || !Number.isFinite(Number(r.value)) ? null : Math.max(0, Number(r.value)),
-        size: r.size == null || String(r.size) === "" || !Number.isFinite(Number(r.size)) ? null : Math.max(0, Number(r.size)),
-      }))
-      .filter((r) => r.status)
-      .slice(0, 12);
-  } catch {
-    return { error: "Couldn’t read the figures. Reload the page and try again." };
-  }
-  if (!rows.length) return { error: "Add at least one status with a number of units." };
-  if (new Set(rows.map((r) => r.status.toLowerCase())).size !== rows.length) return { error: "Each status can only appear once." };
-  try {
-    await saveSalesSnapshot(clientId, dashId, month, rows);
+    await saveSalesSnapshot(input.clientId, input.dashboardId, input.period, parsed.rows.slice(0, 20), input.filename.slice(0, 120) || null);
   } catch (e) {
     return { error: (e as Error).message };
   }
-  revalidatePath(`/admin/clients/${clientId}`);
-  return { ok: `Sales figures for ${monthLabel(month)} saved.` };
+  revalidatePath(`/admin/clients/${input.clientId}`);
+  return { ok: `Sales figures for ${monthLabel(input.period)} saved.` };
 }
 
 export async function deleteSalesAction(f: FormData) {
   const clientId = str(f, "clientId");
   await requireClientAccess(clientId);
   const month = str(f, "month");
-  if (!isCalendarMonth(month)) return;
+  if (!isMonth(month)) return;
   try { await saveSalesSnapshot(clientId, str(f, "dashboardId"), month, null); } catch { /* page shows current state */ }
   revalidatePath(`/admin/clients/${clientId}`);
 }

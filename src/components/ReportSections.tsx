@@ -470,9 +470,21 @@ export { metricDef };
 /* ================= sales figures (entered by hand) ================= */
 
 
-export function SalesSection({ sales, month, currency }: { sales?: Record<string, SalesSnapshot>; month: string; currency: string }) {
-  const snap = snapshotFor(sales, month ? monthOfPeriod(month) : month);
-  if (!snap) return null;
+export function SalesSection({ sales, month, currency, kind = "month" }: { sales?: Record<string, SalesSnapshot>; month: string; currency: string; kind?: "month" | "week" }) {
+  // Sales figures of the report's own period; a weekly view without weekly figures falls back to the month's.
+  let snap = snapshotFor(sales, month, kind);
+  let fallback = false;
+  if (!snap && kind === "week") {
+    snap = snapshotFor(sales, month ? monthOfPeriod(month) : "", "month");
+    fallback = !!snap;
+  }
+  if (!snap) {
+    return (
+      <section className={card}>
+        <SectionHead light="Sales" bold={month ? `for ${monthLabel(month)}` : "figures"} lead="No sales figures have been uploaded for this period yet." />
+      </section>
+    );
+  }
   const prev = previousSnapshot(sales, snap.month);
   const { total, available, committed } = summarize(snap.rows);
   const money = (v: number | null) => (v == null ? "–" : formatMetric("revenue", v, currency).replace(/\.00$/, ""));
@@ -506,7 +518,8 @@ export function SalesSection({ sales, month, currency }: { sales?: Record<string
 
       <section className={card}>
         <SectionHead light="Sales" bold={`as at ${monthLabel(snap.month)}`}
-          lead={snap.month !== monthOfPeriod(month) && month ? `The latest sales figures, from ${monthLabel(snap.month)}.` : "Units, value and size by status."} />
+          lead={fallback ? `No weekly sales figures have been uploaded, so these are the latest monthly figures, from ${monthLabel(snap.month)}.`
+            : month && snap.month !== month ? `The latest sales figures, from ${monthLabel(snap.month)}.` : "Units, value and size by status."} />
         <div className="grid min-w-0 grid-cols-1 gap-8 min-[1700px]:grid-cols-[minmax(0,2fr)_minmax(360px,1fr)] min-[1700px]:items-center">
           <div className="overflow-x-auto">
             <table className="w-full min-w-[640px] border-separate border-spacing-[3px] text-sm">

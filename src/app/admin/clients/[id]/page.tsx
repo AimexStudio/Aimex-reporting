@@ -9,7 +9,7 @@ import {
   AddDashboardForm, RenameDashboardForm, DeleteDashboardButton,
 } from "../../_components/ClientForms";
 import {
-  AddLoginForm, LogoForm, MonthContentEditor, RemoveLoginButton, ReportSettingsForm, ResetLoginPassword, RoleSelect, SalesForm,
+  AddLoginForm, LogoForm, MonthContentEditor, RemoveLoginButton, ReportSettingsForm, ResetLoginPassword, RoleSelect, SalesUpload,
 } from "../../_components/ReportAdminForms";
 
 export const dynamic = "force-dynamic";
@@ -139,8 +139,8 @@ export default async function ClientAdminPage({ params, searchParams }: {
       )}
 
       <Section title={multi ? `Sales figures for ${dash.name}` : "Sales figures"}
-        lead="Units, value and size by status, entered by hand each month. Shown in the report’s Sales section.">
-        <SalesForm key={dash.id} clientId={id} dashboardId={dash.id} sales={data.settings.sales ?? {}} />
+        lead="Upload units, value and size by status, monthly or weekly. Shown in the report’s Sales section.">
+        <SalesUpload key={dash.id} clientId={id} dashboardId={dash.id} sales={data.settings.sales ?? {}} />
       </Section>
 
       <Section title={multi ? `Report settings for ${dash.name}` : "Report settings"}

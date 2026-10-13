@@ -3,7 +3,8 @@
 import { Fragment, useRef, useState, useTransition } from "react";
 import { parseMetricsCsv, type ParseResult } from "@/lib/csv";
 import { formatNumber, metricDef, monthLabel } from "@/lib/metrics";
-import { monthOfPeriod, weekOf, weekRange, type PeriodKind } from "@/lib/period";
+import { monthOfPeriod, previousPeriod, weekOf, weekRange, type PeriodKind } from "@/lib/period";
+import { PeriodIconToggle } from "@/components/PeriodIconToggle";
 import { extractPdfText, importCsvFiles, type ImportResult } from "../actions";
 
 const CHANNEL_SUGGESTIONS = ["Meta Ads", "Google Ads", "TikTok Ads", "LinkedIn Ads", "Website", "Email", "Instagram", "Facebook"];
@@ -65,7 +66,7 @@ export function UploadPanel({ clientId, dashboardId, clientName, existing }: {
     if (p === period) return;
     setPeriodTouched(true);
     setDetectedNote(null);
-    const m = p === "week" ? weekOf(Number(month.slice(0, 4)), Number(month.slice(5, 7)), 1) : monthOfPeriod(month);
+    const m = p === "week" ? previousPeriod("week") : monthOfPeriod(month);
     setPeriod(p);
     setMonth(m);
     setFiles((cur) => cur.map((f) => ({ ...f, preview: parse(f.text, m, f.channel, f.conversionsAs, p) })));
@@ -159,17 +160,10 @@ export function UploadPanel({ clientId, dashboardId, clientName, existing }: {
 
   return (
     <div className="grid gap-5">
-      <div className={`grid gap-4 ${period === "week" ? "sm:grid-cols-[190px_230px_1fr]" : "sm:grid-cols-[190px_170px_1fr]"}`}>
+      <div className={`grid gap-4 ${period === "week" ? "sm:grid-cols-[150px_230px_1fr]" : "sm:grid-cols-[150px_170px_1fr]"}`}>
         <div className="field">
-          <span>Period</span>
-          <div role="radiogroup" aria-label="Upload period" className="grid grid-cols-2 rounded-lg bg-line-soft p-1">
-            {(["month", "week"] as const).map((k) => (
-              <button key={k} type="button" role="radio" aria-checked={period === k} onClick={() => changePeriod(k)}
-                className={`rounded-md px-3 py-1.5 text-sm font-semibold ${period === k ? "bg-night text-white" : "text-ink-2 hover:text-ink"}`}>
-                {k === "month" ? "Monthly" : "Weekly"}
-              </button>
-            ))}
-          </div>
+          <span>Period: {period === "week" ? "weekly" : "monthly"}</span>
+          <PeriodIconToggle value={period} onChange={changePeriod} label="Upload period" />
         </div>
         <label className="field"><span>{period === "week" ? "Any day in the week" : "Month"}</span>
           {period === "week" ? (
@@ -191,7 +185,7 @@ export function UploadPanel({ clientId, dashboardId, clientName, existing }: {
         <a href="/admin/template" className="text-brand-strong underline">Download the template</a>.
       </p>
 
-      {detectedNote && files.length > 0 && <p className="-mt-2 rounded-lg bg-accent-soft px-3 py-2 text-sm text-accent">{detectedNote} Switch to Monthly above if that’s not right.</p>}
+      {detectedNote && files.length > 0 && <p className="-mt-2 rounded-lg bg-accent-soft px-3 py-2 text-sm text-accent">{detectedNote} Switch the period to monthly above if that’s not right.</p>}
       {result?.ok && (
         <div role="status" className="rounded-lg bg-accent-soft px-4 py-3 text-sm text-accent">
           {result.ok}
