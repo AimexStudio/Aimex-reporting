@@ -258,7 +258,9 @@ export async function listClients() {
     clientsSnap.docs.map(async (d) => {
       const c = { ...(d.data() as Omit<Client, "id">), id: d.id };
       const dashboards = await getDashboards(c.id);
-      const perDash = await Promise.all(dashboards.map(async (d) => (await periodsCol(c.id, d.id, c.period ?? "month").select().get()).docs.map((m) => m.id)));
+      const perDash = await Promise.all(dashboards.map(async (d) => (await periodsCol(c.id, d.id, "month").select().get()).docs.map((m) => m.id)));
+      const weekIds = (await Promise.all(dashboards.map(async (d) => (await periodsCol(c.id, d.id, "week").select().get()).docs.map((m) => m.id)))).flat();
+      const weeksSorted = [...new Set(weekIds)].sort();
       const months = [...new Set(perDash.flat())].sort();
       // "behind" if any dashboard is missing its latest month
       const oldestLatest = perDash.map((ms) => ms.sort().at(-1) ?? "").sort()[0] ?? null;
@@ -269,6 +271,8 @@ export async function listClients() {
         lastLoginAt: login?.lastLoginAt ?? null,
         latestMonth: months.at(-1) ?? null,
         oldestLatestMonth: oldestLatest || null,
+        latestWeek: weeksSorted.at(-1) ?? null,
+        weekCount: weeksSorted.length,
         monthCount: months.length,
         dashboardCount: dashboards.length,
       };
@@ -368,12 +372,14 @@ export interface MonthData {
 }
 
 export interface DashboardData {
-  client: { id: string; name: string; currency: string; logo: string | null; period: PeriodKind };
+  client: { id: string; name: string; currency: string; logo: string | null };
   /** Goals, milestones, benchmark and planner defaults (single dashboards only). */
   settings: DashboardSettings;
   /** Which dashboard this is, or the combined overview. */
   scope: { kind: "dashboard"; id: string; name: string } | { kind: "overview"; name: string };
-  months: MonthData[]; // oldest -> newest
+  months: MonthData[]; // monthly figures, oldest -> newest
+  /** Weekly figures (uploads marked weekly), oldest -> newest. Shown in the report's weekly view. */
+  weeks: MonthData[];
 }
 
 /**
@@ -385,13 +391,14 @@ export async function getDashboardData(clientId: string, dashId: string): Promis
   if (!client) return null;
   const dash = await getDashboard(clientId, dashId);
   if (!dash) return null;
-  const months = await loadMonths(clientId, dashId, client.period ?? "month");
+  const [months, weeks] = await Promise.all([loadMonths(clientId, dashId, "month"), loadMonths(clientId, dashId, "week")]);
   const { id: _i, name: _n, createdAt: _c, ...settings } = dash;
   return {
-    client: { id: client.id, name: client.name, currency: client.currency, logo: client.logo ?? null, period: client.period ?? "month" },
+    client: { id: client.id, name: client.name, currency: client.currency, logo: client.logo ?? null },
     settings,
     scope: { kind: "dashboard", id: dash.id, name: dash.name },
     months,
+    weeks,
   };
 }
 
@@ -403,7 +410,19 @@ export async function getOverviewData(clientId: string): Promise<DashboardData |
   const client = await getClient(clientId);
   if (!client) return null;
   const dashboards = await getDashboards(clientId);
-  const perDash = await Promise.all(dashboards.map(async (d) => ({ d, months: await loadMonths(clientId, d.id, client.period ?? "month") })));
+  const [months, weeks] = await Promise.all([overviewPeriods(clientId, dashboards, "month"), overviewPeriods(clientId, dashboards, "week")]);
+  return {
+    client: { id: client.id, name: client.name, currency: client.currency, logo: client.logo ?? null },
+    settings: {},
+    scope: { kind: "overview", name: "All companies" },
+    months,
+    weeks,
+  };
+}
+
+/** One row per company for each period of one kind (monthly or weekly). */
+async function overviewPeriods(clientId: string, dashboards: DashboardDoc[], kind: PeriodKind): Promise<MonthData[]> {
+  const perDash = await Promise.all(dashboards.map(async (d) => ({ d, months: await loadMonths(clientId, d.id, kind) })));
   const allMonths = [...new Set(perDash.flatMap((p) => p.months.map((m) => m.month)))].sort();
   const months: MonthData[] = allMonths.map((month) => {
     const rows = perDash
@@ -423,7 +442,7 @@ export async function getOverviewData(clientId: string): Promise<DashboardData |
     const scopedChannels = perDash.flatMap(({ months }) => months.find((x) => x.month === month)?.channels.map((c) => c.raw) ?? []);
     const partial = Object.assign({}, ...perDash.map(({ months }) => months.find((x) => x.month === month)?.partial ?? {}));
     return { month, totals: deriveTotals(scopedChannels), channels, note: null, sectionNotes: {}, goalActuals: {}, partial,
-      compareNote: Object.keys(partial).length ? `Some figures cover only part of ${monthLabel(month)} so far, so changes from last month aren’t shown.` : undefined };
+      compareNote: Object.keys(partial).length ? `Some figures cover only part of ${monthLabel(month)} so far, so changes from ${words(kind).last} aren’t shown.` : undefined };
   });
   // Month-on-month changes are only fair when the same companies have data in both months.
   months.forEach((m, i) => {
@@ -439,12 +458,7 @@ export async function getOverviewData(clientId: string): Promise<DashboardData |
       m.compareNote = `${missingNow.join(" and ")} ${missingNow.length === 1 ? "has" : "have"} no figures for ${monthLabel(m.month)} yet, so changes from ${words(kindOf(m.month)).last} aren’t shown here.`;
     }
   });
-  return {
-    client: { id: client.id, name: client.name, currency: client.currency, logo: client.logo ?? null, period: client.period ?? "month" },
-    settings: {},
-    scope: { kind: "overview", name: "All companies" },
-    months,
-  };
+  return months;
 }
 
 /**

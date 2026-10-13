@@ -10,7 +10,7 @@ import {
   EmailTakenError, addClientUser, createClientWithLogin, createDashboard, deleteClientCascade, deleteDashboard,
   deleteMonth as removeMonth, getClient, getDashboard, getUser, removeClientUser, renameDashboard, saveDashboardSettings,
   saveGoalActuals, saveImport, saveMonthNote as storeNote, saveSalesSnapshot, saveSectionNotes, setClientLogo, setClientUserRole, setPassword,
-  updateClientFields, setReportingPeriod,
+  updateClientFields,
 } from "@/lib/data";
 import type { Goal, Milestone, SalesRow } from "@/db/types";
 import { isPeriod as isMonth, isMonth as isCalendarMonth, monthLabel } from "@/lib/metrics";
@@ -103,7 +103,7 @@ export interface ImportFile {
  * the server first; if any file has a problem, or two files contain the same
  * channel for the same month, nothing is saved.
  */
-export async function importCsvFiles(input: { clientId: string; dashboardId: string; files: ImportFile[]; note: string }): Promise<ImportResult> {
+export async function importCsvFiles(input: { clientId: string; dashboardId: string; files: ImportFile[]; note: string; period?: "month" | "week" }): Promise<ImportResult> {
   await requireClientAccess(String(input.clientId));
   const client = await getClient(input.clientId);
   if (!client) return { error: "That client no longer exists." };
@@ -125,7 +125,7 @@ export async function importCsvFiles(input: { clientId: string; dashboardId: str
       f.csv,
       isMonth(f.defaultMonth) ? f.defaultMonth : undefined,
       f.defaultChannel.trim().slice(0, 60) || undefined,
-      { conversionsAs: f.conversionsAs === "leads" ? "leads" : "conversions", period: client.period ?? "month" },
+      { conversionsAs: f.conversionsAs === "leads" ? "leads" : "conversions", period: input.period === "week" ? "week" : "month" },
     );
     for (const e of parsed.errors) errors.push(`${name}: ${e}`);
     for (const pair of new Set(parsed.rows.map((r) => `${r.month}|${r.channel}`))) {
@@ -402,14 +402,4 @@ export async function extractPdfText(input: { base64: string }): Promise<{ text?
   } catch {
     return { error: "Couldn’t read that PDF. If it’s a scanned image rather than a downloaded report, it has no text to read." };
   }
-}
-
-/* ---------------- monthly or weekly reporting ---------------- */
-
-export async function setReportingPeriodAction(f: FormData) {
-  const clientId = str(f, "clientId");
-  await requireClientAccess(clientId);
-  await setReportingPeriod(clientId, str(f, "period") === "week" ? "week" : "month");
-  revalidatePath(`/admin/clients/${clientId}`);
-  revalidatePath("/admin");
 }

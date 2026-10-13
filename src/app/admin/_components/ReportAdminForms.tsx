@@ -5,7 +5,7 @@ import type { Goal, Milestone, SalesRow, SalesSnapshot, SectionNotes } from "@/d
 import { DEFAULT_STATUSES, statusColor } from "@/lib/sales";
 import { monthLabel } from "@/lib/metrics";
 import {
-  addClientUserAction, changeClientUserRole, deleteSalesAction, setReportingPeriodAction, removeClientUserAction, resetClientPassword, saveGoalActualsAction, saveSalesAction,
+  addClientUserAction, changeClientUserRole, deleteSalesAction, removeClientUserAction, resetClientPassword, saveGoalActualsAction, saveSalesAction,
   saveReportSettingsAction, saveSectionNotesAction, setLogoAction, type FormState,
 } from "../actions";
 
@@ -384,31 +384,6 @@ export function SalesForm({ clientId, dashboardId, sales }: { clientId: string; 
           </ul>
         </div>
       )}
-    </div>
-  );
-}
-
-/* ================= monthly / weekly reporting ================= */
-
-export function PeriodToggle({ clientId, period }: { clientId: string; period: "month" | "week" }) {
-  const [pending, start] = useTransition();
-  const set = (p: "month" | "week") => {
-    if (p === period) return;
-    if (!confirm(p === "week"
-      ? "Switch this client to weekly reporting? Their report will show weekly figures, and uploads will need one week per file. Monthly figures are kept."
-      : "Switch this client back to monthly reporting? Their report will show the monthly figures again. Weekly figures are kept.")) return;
-    const fd = new FormData();
-    fd.set("clientId", clientId); fd.set("period", p);
-    start(() => setReportingPeriodAction(fd));
-  };
-  return (
-    <div role="radiogroup" aria-label="Reporting period" className="inline-flex rounded-xl bg-line-soft p-1">
-      {(["month", "week"] as const).map((p) => (
-        <button key={p} type="button" role="radio" aria-checked={period === p} disabled={pending} onClick={() => set(p)}
-          className={`rounded-lg px-4 py-2 text-sm font-semibold ${period === p ? "bg-night text-white shadow" : "text-ink-2 hover:text-ink"}`}>
-          {p === "month" ? "Monthly" : "Weekly"}
-        </button>
-      ))}
     </div>
   );
 }

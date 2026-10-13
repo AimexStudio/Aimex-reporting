@@ -9,7 +9,7 @@ import { ReportBody } from "./Dashboard";
 import { BranchSection, BreakdownTable, ChannelTiles, GoalsSection, NotesPanel, Roadmap, RoiPlanner, SalesSection, TrafficSources } from "./ReportSections";
 import { FullscreenButton, PrintButton } from "./ReportTools";
 import { PeriodContext } from "./period-context";
-import { isWeekId, weekSpan, words } from "@/lib/period";
+import { isWeekId, weekSpan, words, type PeriodKind } from "@/lib/period";
 
 type Section = { id: string; label: string; icon: string };
 
@@ -27,10 +27,19 @@ export function ReportApp({ data, companies, currentCompany, manageHref, signOut
   manageHref?: string | null;
   signOut?: React.ReactNode;
 }) {
-  const { months, client, settings } = data;
+  const { client, settings } = data;
   const cur = client.currency;
   const group = data.scope.kind === "overview";
+  // Monthly and weekly figures sit side by side; the report shows one set at a time.
+  const hasMonths = data.months.length > 0;
+  const hasWeeks = data.weeks.length > 0;
+  const [view, setView] = useState<PeriodKind>(hasMonths || !hasWeeks ? "month" : "week");
+  const months = view === "week" ? data.weeks : data.months;
   const [selected, setSelected] = useState(months.at(-1)?.month ?? "");
+  const switchView = (v: PeriodKind) => {
+    setView(v);
+    setSelected((v === "week" ? data.weeks : data.months).at(-1)?.month ?? "");
+  };
   const [section, setSection] = useState("overview");
   const month = months.find((m) => m.month === selected);
 
@@ -56,7 +65,7 @@ export function ReportApp({ data, companies, currentCompany, manageHref, signOut
   const chips = headlineChips(channelName ? channelMonths.find((m) => m.month === selected) : month, cur);
 
   return (
-    <PeriodContext.Provider value={client.period}>
+    <PeriodContext.Provider value={view}>
     <div className="report-root min-h-dvh bg-page lg:grid lg:grid-cols-[272px_minmax(0,1fr)] print:block">
       {/* ---------- sidebar (dark column runs the full page height; the menu stays in view) ---------- */}
       <div className="bg-night print:hidden">
@@ -71,8 +80,18 @@ export function ReportApp({ data, companies, currentCompany, manageHref, signOut
           <p className="text-xs text-white/50 lg:mt-3 lg:text-center">Marketing report by Aimex Studio</p>
         </div>
 
+        {hasMonths && hasWeeks && (
+          <div role="radiogroup" aria-label="Report view" className="mx-5 mt-5 grid grid-cols-2 rounded-xl bg-white/[0.06] p-1 ring-1 ring-white/10 lg:mx-4">
+            {(["month", "week"] as const).map((v) => (
+              <button key={v} type="button" role="radio" aria-checked={view === v} onClick={() => switchView(v)}
+                className={`rounded-lg px-3 py-1.5 text-sm font-semibold ${view === v ? "bg-brand text-white" : "text-white/70 hover:text-white"}`}>
+                {v === "month" ? "Monthly" : "Weekly"}
+              </button>
+            ))}
+          </div>
+        )}
         {selected && (
-          <div className="mx-5 mt-5 rounded-xl bg-white/[0.06] p-3 text-sm ring-1 ring-white/10 lg:mx-4">
+          <div className={`mx-5 ${hasMonths && hasWeeks ? "mt-3" : "mt-5"} rounded-xl bg-white/[0.06] p-3 text-sm ring-1 ring-white/10 lg:mx-4`}>
             <p className="text-xs text-white/50">Reporting period</p>
             <p className="font-semibold">{periodText(selected)}</p>
           </div>

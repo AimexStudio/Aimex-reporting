@@ -9,7 +9,7 @@ import {
   AddDashboardForm, RenameDashboardForm, DeleteDashboardButton,
 } from "../../_components/ClientForms";
 import {
-  AddLoginForm, LogoForm, MonthContentEditor, PeriodToggle, RemoveLoginButton, ReportSettingsForm, ResetLoginPassword, RoleSelect, SalesForm,
+  AddLoginForm, LogoForm, MonthContentEditor, RemoveLoginButton, ReportSettingsForm, ResetLoginPassword, RoleSelect, SalesForm,
 } from "../../_components/ReportAdminForms";
 
 export const dynamic = "force-dynamic";
@@ -32,8 +32,8 @@ export default async function ClientAdminPage({ params, searchParams }: {
   const manualGoals = (data?.settings.goals ?? []).filter((g) => !g.metric);
   if (!data) notFound();
   const months = [...data.months].reverse();
+  const weeks = [...data.weeks].reverse();
   const multi = dashboards.length > 1;
-  const weekly = client.period === "week";
 
   return (
     <div className="grid grid-cols-1 gap-10">
@@ -53,20 +53,6 @@ export default async function ClientAdminPage({ params, searchParams }: {
           </div>
         </div>
       </div>
-
-      <section aria-label="Reporting period" className="rounded-2xl border border-line bg-surface p-6">
-        <div className="flex flex-wrap items-start justify-between gap-4">
-          <div className="max-w-2xl">
-            <h2 className="text-lg font-semibold">Reporting period</h2>
-            <p className="mt-0.5 text-sm text-ink-2">
-              {weekly
-                ? "This client reports weekly (Monday to Sunday). Upload one week per file; monthly figures are kept and come back if you switch to monthly."
-                : "This client reports monthly. Switch to weekly to upload and report one week (Monday to Sunday) at a time; the monthly figures are kept."}
-            </p>
-          </div>
-          <PeriodToggle clientId={id} period={client.period ?? "month"} />
-        </div>
-      </section>
 
       <section aria-label="Dashboards" className="rounded-2xl border border-line bg-surface p-6">
         <h2 className="text-lg font-semibold">Dashboards</h2>
@@ -88,13 +74,14 @@ export default async function ClientAdminPage({ params, searchParams }: {
         </div>
       </section>
 
-      <Section title={`Upload ${weekly ? "weekly" : "monthly"} data${multi ? ` to ${dash.name}` : ""}`} lead="Add a month of results from a CSV. You’ll see a preview before anything is saved.">
-        <UploadPanel clientId={id} dashboardId={dash.id} clientName={multi ? dash.name : client.name} period={client.period ?? "month"} existing={data.months.flatMap((m) => m.channels.map((c) => `${m.month}|${c.channel}`))} />
+      <Section title={`Upload data${multi ? ` to ${dash.name}` : ""}`} lead="Add a month of results from a CSV. You’ll see a preview before anything is saved.">
+        <UploadPanel clientId={id} dashboardId={dash.id} clientName={multi ? dash.name : client.name}
+          existing={[...data.months, ...data.weeks].flatMap((m) => m.channels.map((c) => `${m.month}|${c.channel}`))} />
       </Section>
 
-      <Section title={`${weekly ? "Weeks" : "Months"} on file${multi ? ` for ${dash.name}` : ""}`} lead="The note appears at the top of that month’s report. Insights and warnings appear on the overview or the channel’s page.">
+      <Section title={`Months on file${multi ? ` for ${dash.name}` : ""}`} lead="The note appears at the top of that month’s report. Insights and warnings appear on the overview or the channel’s page.">
         {months.length === 0 ? (
-          <p className="text-ink-2">Nothing uploaded yet.</p>
+          <p className="text-ink-2">{weeks.length ? "No monthly uploads yet. This client has weekly figures only." : "Nothing uploaded yet."}</p>
         ) : (
           <ul className="divide-y divide-line-soft">
             {months.map((m) => (
@@ -120,6 +107,36 @@ export default async function ClientAdminPage({ params, searchParams }: {
           </ul>
         )}
       </Section>
+      {weeks.length > 0 && (
+      <Section title={`Weeks on file${multi ? ` for ${dash.name}` : ""}`} lead="Weekly uploads, shown in the report’s weekly view. Notes, insights and warnings work the same as for months.">
+        {weeks.length === 0 ? (
+          <p className="text-ink-2">Nothing uploaded yet.</p>
+        ) : (
+          <ul className="divide-y divide-line-soft">
+            {weeks.map((m) => (
+              <li key={m.month} className="grid gap-3 py-4 first:pt-0 last:pb-0 md:grid-cols-[220px_1fr]">
+                <div>
+                  <p className="font-semibold">{monthLabel(m.month)}</p>
+                  <p className="text-sm text-ink-2">
+                    {m.channels.map((c) => c.channel).join(", ")}
+                  </p>
+                  {m.totals.spend != null && (
+                    <p className="text-sm text-ink-3">{formatMetric("spend", m.totals.spend, client.currency)} spend</p>
+                  )}
+                  <div className="mt-1"><DeleteMonthButton clientId={id} dashboardId={dash.id} month={m.month} label={monthLabel(m.month)} /></div>
+                </div>
+                <div className="grid gap-3">
+                  <MonthNoteForm clientId={id} dashboardId={dash.id} month={m.month} body={m.note} />
+                  <MonthContentEditor clientId={id} dashboardId={dash.id} month={m.month}
+                    sections={["overview", ...m.channels.map((c) => c.channel)]} notes={m.sectionNotes}
+                    manualGoals={manualGoals} actuals={m.goalActuals} />
+                </div>
+              </li>
+            ))}
+          </ul>
+        )}
+      </Section>
+      )}
 
       <Section title={multi ? `Sales figures for ${dash.name}` : "Sales figures"}
         lead="Units, value and size by status, entered by hand each month. Shown in the report’s Sales section.">

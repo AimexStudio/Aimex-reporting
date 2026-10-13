@@ -3,7 +3,7 @@
 import { Fragment, useRef, useState, useTransition } from "react";
 import { parseMetricsCsv, type ParseResult } from "@/lib/csv";
 import { formatNumber, metricDef, monthLabel } from "@/lib/metrics";
-import { previousPeriod, weekOf, weekRange, type PeriodKind } from "@/lib/period";
+import { monthOfPeriod, weekOf, weekRange, type PeriodKind } from "@/lib/period";
 import { extractPdfText, importCsvFiles, type ImportResult } from "../actions";
 
 const CHANNEL_SUGGESTIONS = ["Meta Ads", "Google Ads", "TikTok Ads", "LinkedIn Ads", "Website", "Email", "Instagram", "Facebook"];
@@ -43,23 +43,41 @@ async function readText(f: File): Promise<string> {
 }
 
 /** existing: "YYYY-MM|Channel" pairs already saved for this client. */
-export function UploadPanel({ clientId, dashboardId, clientName, existing, period = "month" }: {
-  clientId: string; dashboardId: string; clientName: string; existing: string[]; period?: PeriodKind;
+export function UploadPanel({ clientId, dashboardId, clientName, existing }: {
+  clientId: string; dashboardId: string; clientName: string; existing: string[];
 }) {
-  const [month, setMonth] = useState(period === "week" ? previousPeriod("week") : previousMonth());
+  // Each upload is either monthly or weekly. It's set from the first file's own dates where
+  // possible (a one-week export is weekly), and can be changed before importing.
+  const [period, setPeriod] = useState<PeriodKind>("month");
+  const [periodTouched, setPeriodTouched] = useState(false);
+  const [detectedNote, setDetectedNote] = useState<string | null>(null);
+  const [month, setMonth] = useState(previousMonth());
   const [files, setFiles] = useState<Pending[]>([]);
   const [note, setNote] = useState("");
   const [result, setResult] = useState<ImportResult | null>(null);
   const [pending, start] = useTransition();
   const inputRef = useRef<HTMLInputElement>(null);
 
-  const parse = (text: string, m: string, ch: string, conv: "conversions" | "leads" = "conversions") =>
-    parseMetricsCsv(text, m, ch, { conversionsAs: conv, period });
+  const parse = (text: string, m: string, ch: string, conv: "conversions" | "leads" = "conversions", p: PeriodKind = period) =>
+    parseMetricsCsv(text, m, ch, { conversionsAs: conv, period: p });
+
+  function changePeriod(p: PeriodKind) {
+    if (p === period) return;
+    setPeriodTouched(true);
+    setDetectedNote(null);
+    const m = p === "week" ? weekOf(Number(month.slice(0, 4)), Number(month.slice(5, 7)), 1) : monthOfPeriod(month);
+    setPeriod(p);
+    setMonth(m);
+    setFiles((cur) => cur.map((f) => ({ ...f, preview: parse(f.text, m, f.channel, f.conversionsAs, p) })));
+  }
 
   async function addFiles(list: FileList | null) {
     setResult(null);
     if (!list?.length) return;
     const added: Pending[] = [];
+    let p = period;
+    let m = month;
+    let first = files.length === 0 && !periodTouched;
     for (const f of Array.from(list)) {
       let text: string;
       try {
@@ -68,9 +86,23 @@ export function UploadPanel({ clientId, dashboardId, clientName, existing, perio
         setResult({ error: `${f.name}: ${(e as Error).message}` });
         continue;
       }
-      const detected = parse(text, month, "").detectedSource ?? "";
-      added.push({ id: crypto.randomUUID(), name: f.name, text, channel: detected, channelTouched: false, conversionsAs: "leads", preview: parse(text, month, detected, "leads") });
+      if (first) {
+        // A file whose own dates fall in a single week is a weekly report.
+        const asWeek = parseMetricsCsv(text, undefined, "", { period: "week" });
+        if (!asWeek.errors.length && asWeek.months.length === 1) {
+          p = "week"; m = asWeek.months[0];
+          setDetectedNote(`${f.name} covers ${monthLabel(m)}, so this upload is set to weekly.`);
+        } else {
+          p = "month"; if (period === "week") m = monthOfPeriod(month);
+          setDetectedNote(null);
+        }
+        first = false;
+      }
+      const detected = parse(text, m, "", "conversions", p).detectedSource ?? "";
+      added.push({ id: crypto.randomUUID(), name: f.name, text, channel: detected, channelTouched: false, conversionsAs: "leads", preview: parse(text, m, detected, "leads", p) });
     }
+    if (p !== period) setPeriod(p);
+    if (m !== month) setMonth(m);
     setFiles((cur) => [...cur, ...added]);
     if (inputRef.current) inputRef.current.value = "";
   }
@@ -90,6 +122,8 @@ export function UploadPanel({ clientId, dashboardId, clientName, existing, perio
 
   function reset() {
     setFiles([]);
+    setPeriodTouched(false);
+    setDetectedNote(null);
     setNote("");
     if (inputRef.current) inputRef.current.value = "";
   }
@@ -100,6 +134,7 @@ export function UploadPanel({ clientId, dashboardId, clientName, existing, perio
         clientId,
         dashboardId,
         note,
+        period,
         files: files.map((f) => ({ csv: f.text, filename: f.name, defaultMonth: month, defaultChannel: f.channel, conversionsAs: f.conversionsAs })),
       });
       setResult(r);
@@ -124,7 +159,18 @@ export function UploadPanel({ clientId, dashboardId, clientName, existing, perio
 
   return (
     <div className="grid gap-5">
-      <div className={`grid gap-4 ${period === "week" ? "sm:grid-cols-[230px_1fr]" : "sm:grid-cols-[170px_1fr]"}`}>
+      <div className={`grid gap-4 ${period === "week" ? "sm:grid-cols-[190px_230px_1fr]" : "sm:grid-cols-[190px_170px_1fr]"}`}>
+        <div className="field">
+          <span>Period</span>
+          <div role="radiogroup" aria-label="Upload period" className="grid grid-cols-2 rounded-lg bg-line-soft p-1">
+            {(["month", "week"] as const).map((k) => (
+              <button key={k} type="button" role="radio" aria-checked={period === k} onClick={() => changePeriod(k)}
+                className={`rounded-md px-3 py-1.5 text-sm font-semibold ${period === k ? "bg-night text-white" : "text-ink-2 hover:text-ink"}`}>
+                {k === "month" ? "Monthly" : "Weekly"}
+              </button>
+            ))}
+          </div>
+        </div>
         <label className="field"><span>{period === "week" ? "Any day in the week" : "Month"}</span>
           {period === "week" ? (
             <>
@@ -145,6 +191,7 @@ export function UploadPanel({ clientId, dashboardId, clientName, existing, perio
         <a href="/admin/template" className="text-brand-strong underline">Download the template</a>.
       </p>
 
+      {detectedNote && files.length > 0 && <p className="-mt-2 rounded-lg bg-accent-soft px-3 py-2 text-sm text-accent">{detectedNote} Switch to Monthly above if that’s not right.</p>}
       {result?.ok && (
         <div role="status" className="rounded-lg bg-accent-soft px-4 py-3 text-sm text-accent">
           {result.ok}

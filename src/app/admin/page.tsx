@@ -19,9 +19,12 @@ export default async function AdminHome() {
   const clients = await listClients();
   const due = lastMonth();
   // Each client is due its own last complete period: last month, or last week for weekly clients.
-  const dueFor = (c: { period?: "month" | "week" }) => (c.period === "week" ? previousPeriod("week") : due);
-  const behind = clients.filter((c) => !c.latestMonth || c.latestMonth < dueFor(c));
-  const anyWeekly = clients.some((c) => c.period === "week");
+  // Clients with only weekly uploads are due last week; everyone else is due last month.
+  const weeklyOnly = (c: { monthCount: number; weekCount: number }) => c.weekCount > 0 && c.monthCount === 0;
+  const latestFor = (c: { latestMonth: string | null; latestWeek: string | null; monthCount: number; weekCount: number }) => (weeklyOnly(c) ? c.latestWeek : c.latestMonth);
+  const dueFor = (c: { monthCount: number; weekCount: number }) => (weeklyOnly(c) ? previousPeriod("week") : due);
+  const behind = clients.filter((c) => !latestFor(c) || latestFor(c)! < dueFor(c));
+  const anyWeekly = clients.some((c) => c.weekCount > 0);
 
   return (
     <div className="grid grid-cols-1 gap-8">
@@ -59,7 +62,7 @@ export default async function AdminHome() {
             </thead>
             <tbody>
               {clients.map((c) => {
-                const isBehind = !c.latestMonth || c.latestMonth < dueFor(c);
+                const isBehind = !latestFor(c) || latestFor(c)! < dueFor(c);
                 return (
                   <tr key={c.id} className="border-b border-line-soft last:border-0 hover:bg-page/60">
                     <td className="px-5 py-3.5">
@@ -70,9 +73,9 @@ export default async function AdminHome() {
                     </td>
                     <td className="px-5 py-3.5 text-ink-2">{c.email ?? "–"}</td>
                     <td className="px-5 py-3.5">
-                      {c.latestMonth ? monthLabel(c.latestMonth) : "No data yet"}
-                      {isBehind && <span className="ml-2 rounded-full bg-neg-soft px-2 py-0.5 text-xs font-medium text-neg">Needs {c.period === "week" ? `week of ${monthLabel(dueFor(c), "short")}` : monthLabel(due, "short")}</span>}
-                      {c.period === "week" && <span className="ml-2 rounded-full bg-line-soft px-2 py-0.5 text-xs font-medium text-ink-2">Weekly</span>}
+                      {latestFor(c) ? monthLabel(latestFor(c)!) : "No data yet"}
+                      {isBehind && <span className="ml-2 rounded-full bg-neg-soft px-2 py-0.5 text-xs font-medium text-neg">Needs {weeklyOnly(c) ? `week of ${monthLabel(dueFor(c), "short")}` : monthLabel(due, "short")}</span>}
+                      {c.weekCount > 0 && <span className="ml-2 rounded-full bg-line-soft px-2 py-0.5 text-xs font-medium text-ink-2">{c.monthCount ? "Monthly & weekly" : "Weekly"}</span>}
                     </td>
                     <td className="px-5 py-3.5 text-right">{c.monthCount}</td>
                     <td className="px-5 py-3.5 text-ink-2">

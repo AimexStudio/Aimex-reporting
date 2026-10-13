@@ -67,16 +67,16 @@ The logo is `public/brand/logo-color.png` and is always shown in brand orange, o
 
 Figures that combine channels (cost per lead, ROAS, CTR, funnel steps) only use the channels that produced them, so Google spend is never divided by Meta leads.
 
-## Weekly reporting
+## Weekly and monthly uploads
 
-Each client has a **Reporting period** switch (Monthly / Weekly) at the top of its admin page. Super admins and the client's own admins can change it, and it applies to all of the client's dashboards.
+Every upload is either **monthly** or **weekly**, chosen in the upload box's **Period** switch. Both kinds sit side by side for every client, so a client can have, say, weekly Meta and Google reports and monthly Property24 figures.
 
-- Weeks run **Monday to Sunday** (ISO weeks, e.g. "Week 41: 5 – 11 October 2026").
-- Monthly and weekly figures are stored separately. Switching only changes which set the report shows and uploads go to; nothing is deleted, and switching back restores the other set.
-- In weekly mode the upload box asks for **any day in the week**. Platform exports set the week from their own dates: Meta's "Reporting starts", Google Ads' date range line, and Google Analytics' start and end dates. Simple sheets can put a date (`2026-10-05`) or a week (`2026-W41`) in the month column.
-- A file covering **more than one week** (for example a monthly export) is refused for weekly clients, so a month of results can't land in one week. Property24 PDFs are monthly only, so they're refused too.
-- The report reads "Week 41 results", "The week of 5 October brought in…", "vs last week", "Week by week"; goals and the ROI planner work per week. Sales figures stay monthly: a weekly report shows the figures for the month the week falls in.
-- The clients list tags weekly clients and flags them when last week hasn't been uploaded.
+- **Set automatically:** when the first file's own dates fall in a single week (a Meta, Google Ads or Google Analytics export for Monday to Sunday), the upload switches to **Weekly** and says so. Anything else stays **Monthly**. You can change it before importing.
+- Weeks run **Monday to Sunday** (ISO weeks, e.g. "Week 41: 5 – 11 October 2026"). For weekly uploads the form asks for **any day in the week**; simple sheets can put a date (`2026-10-05`) or a week (`2026-W41`) in the month column.
+- A file covering **more than one week** can't be uploaded as weekly, so a month of results can't land in one week. Property24 PDFs only have monthly figures, so they're monthly uploads only.
+- The client's admin page lists **Months on file** and **Weeks on file** separately; notes, insights and warnings work for both.
+- **The report** gets a **Monthly / Weekly** switch in its sidebar when the client has both. The weekly view reads "Week 41 results", "The week of 5 October brought in…", "vs last week", "Week by week"; goals and the ROI planner work per week. Sales figures stay monthly: the weekly view shows the month the week falls in.
+- The clients list tags clients "Weekly" or "Monthly & weekly"; clients with only weekly uploads are flagged when last week is missing.
 
 **Comparing periods:** totals are only compared with the previous period when the same channels have figures in both. If, say, Google Ads was uploaded this week but not last, the overview explains that instead of counting Google's results as growth. Each channel's own page still compares like with like.
 
