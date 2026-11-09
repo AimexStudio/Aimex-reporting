@@ -53,8 +53,8 @@ export function fakeFirestore(file: string) {
     constructor(public path: string, private filters: [string, unknown][] = [], private order?: [string, "asc" | "desc"], private max?: number) {}
     doc(id: string = crypto.randomUUID()) { return new DocRef(`${this.path}/${id}`); }
     where(f: string, op: string, v: unknown) {
-      if (op !== "==") throw new Error("Fake Firestore supports == only");
-      return new Query(this.path, [...this.filters, [f, v]], this.order, this.max);
+      if (op !== "==" && op !== "array-contains") throw new Error("Fake Firestore supports == and array-contains only");
+      return new Query(this.path, [...this.filters, [op === "array-contains" ? `${f}\u0000contains` : f, v]], this.order, this.max);
     }
     orderBy(f: string, dir: "asc" | "desc" = "asc") { return new Query(this.path, this.filters, [f, dir], this.max); }
     limit(n: number) { return new Query(this.path, this.filters, this.order, n); }
@@ -62,7 +62,8 @@ export function fakeFirestore(file: string) {
     async get() {
       const s = load(file);
       let rows = Object.entries(s).filter(([p]) => isChildOf(p, this.path));
-      rows = rows.filter(([, d]) => this.filters.every(([f, v]) => d[f] === v));
+      rows = rows.filter(([, d]) => this.filters.every(([f, v]) =>
+        f.endsWith("\u0000contains") ? Array.isArray(d[f.slice(0, -9)]) && (d[f.slice(0, -9)] as unknown[]).includes(v) : d[f] === v));
       if (this.order) {
         const [f, dir] = this.order;
         rows.sort(([, a], [, b]) => (a[f] as never) < (b[f] as never) ? -1 : (a[f] as never) > (b[f] as never) ? 1 : 0);

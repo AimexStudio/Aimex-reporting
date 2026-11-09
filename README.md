@@ -67,6 +67,67 @@ The logo is `public/brand/logo-color.png` and is always shown in brand orange, o
 
 Figures that combine channels (cost per lead, ROAS, CTR, funnel steps) only use the channels that produced them, so Google spend is never divided by Meta leads.
 
+## Downloading uploaded files
+
+Every upload made from now on keeps the file itself, stored with the client's dashboard in Firestore (in pieces of about 700 KB, so any size the upload accepts fits): data CSVs and Property24 PDFs under **Upload history**, sales and room sales files under their saved upload. Each has a **Download** link that returns the file as it was uploaded (CSVs saved as UTF-8; PDFs byte for byte). Deleting a sales or room sales upload deletes its file; deleting a client deletes everything.
+
+Uploads from before files were kept show **Not kept** in the history. For those, **Download CSV** on any month or week (Months on file / Weeks on file), sales period or room sales report exports the stored figures in the portal's own upload layout, so the file can be uploaded again unchanged. It holds every figure the report uses, but not campaign-by-campaign tables.
+
+Downloads are allowed for Aimex staff and for that client's own admins (`/admin/clients/<id>/download`), the same rule as uploading.
+
+## Admin Report (ClickUp)
+
+**Admin Report** (top navigation, after Team) shows the ClickUp tasks assigned to the token's owner, especially production work, without showing their name. Only super admins (Aimex staff, the same rule as the Team page) can open the page or its API routes; client logins get a redirect or 403.
+
+- **Token:** ClickUp is called only by the server, with the token in `CLICKUP_API_TOKEN` (the team member's personal token: ClickUp → Settings → Apps → API Token). Locally, put it in `.env`. On Cloud Run, store it in Secret Manager as `clickup-api-token`; `npm run deploy:gcp` passes it to the service when that secret exists. Optional `CLICKUP_TEAM_ID` picks a workspace; otherwise the token's first workspace is used.
+- **Routes:** `GET /admin/task-report/api/summary` (user, workspace, tasks; cached 5 minutes, `?refresh=1` skips the cache) and `GET /admin/task-report/api/comments/:taskId` (newest first; cached 10 minutes).
+- **Rate limits:** outgoing requests are throttled to about 92 a minute. A 429 waits for ClickUp's reset and retries once, then shows a clear message; a 401 shows "ClickUp rejected the API token. Check CLICKUP_API_TOKEN."
+- **Code:** `src/lib/clickup.ts` (server: token lookup in `getClickUpToken`, ready for per-member tokens later), `src/lib/task-report.ts` (the prototype's logic), `src/app/admin/task-report/` (page, component and routes).
+
+## Meta total rows, reach and frequency
+
+Meta exports often start with a **total row** (no campaign, ad set or ad name). It's left out of the sums, so figures aren't counted twice, and its **reach** is used as the channel's reach: it counts each person once, which adding up campaign reach can't. **Frequency** (impressions ÷ reach, the average number of times each person saw the ads) is worked out wherever reach is known: the Meta channel tiles, each campaign's row, the overview figures and "Every number". Without a total row, a file split across several rows has no reliable reach, so reach and frequency are left out and the preview says why. Budgets show "/ day" or "lifetime" only when the export says which.
+
+## Removing a wrong upload, and "All channels"
+
+Under **Months on file** (and **Weeks on file**), each period lists its channels with a **×** to remove just that channel's figures and notes from that period; the other channels stay. Uploads must say which channel they're for (a channel column, a recognised Meta / Google / Analytics export, or the Channel box): a file without one is refused rather than filed under "All channels".
+
+To remove a channel from **every** client and dashboard at once (for example leftover "All channels" data), run from the project folder on your Mac:
+
+```bash
+npm run remove:channel -- "All channels"           # lists what would change
+npm run remove:channel -- "All channels" --apply   # removes it
+```
+
+## Marketing channels banner
+
+Super admins tick the channels each client uses under **Marketing channels** on the client's admin page (per dashboard): Google Business Profile (GMB), Meta Ads, Facebook Page, Instagram Page, Google Ads, RoomRaccoon and NightsBridge. They appear as a banner at the top of the report's **Overview**, grouped as advertising, social pages, listings and booking platforms. A group overview shows every channel used across its companies. With nothing ticked, no banner is shown. Client admins and viewers can't change the list; the save is checked on the server.
+
+## Client categories: Developments and Spectrum Collection
+
+Clients are grouped into two categories, shown as two sections on the Clients page:
+
+- **Developments** (property developments): everything as described in this README, including **Sales figures** (unit sales by status).
+- **Spectrum Collection** (hospitality): the same features, except that **Sales figures** is replaced by **Room sales**.
+
+The category is chosen when adding a client ("+ Add to …" on each section pre-selects it) and can be changed under the client's **Client details**. Clients created before categories existed were sorted once: 9 on Barrack into Spectrum Collection, everyone else into Developments.
+
+**Room sales (Spectrum Collection):** upload the hotel's daily dashboard CSV as exported. The reader takes the **Reporting date**, the monthly forecast table (Month, Rooms Available, OTB Rooms, OTB Revenue, plus Key Demand Driver, Commercial Priority, Rate Strategy and Sales / Marketing Action) and the daily OTB table (Date, Rooms Available, OTB Rooms, OTB Revenue, Value Focus, Rate Action, Sales Action). Each upload is kept under its reporting date (latest 60), so the report can show pickup between reports. Each report can carry **comments** (added with the upload or later), shown under the room sales summary. Occupancy, ADR and RevPAR are always worked out from rooms and revenue, and the preview warns when a month's figures disagree (e.g. a file's ADR not matching revenue ÷ rooms, or the monthly row not matching the daily rows).
+
+The report's **Room sales** section is built for **weekly uploads that each cover about three months** (for example from RoomRaccoon or NightsBridge). Months are never added together:
+
+- **This month:** the month of the reporting date: rooms on the books out of rooms available, occupancy, revenue, ADR and RevPAR, with pickup since the previous upload and a **projected month end**.
+  The month's revenue is split into **Revenue so far** (nights already stayed, 1st of the month to the day before the reporting date) and **Booked, not yet stayed** (the reporting date to the month end), worked out from the daily rows. **Budget Variance** compares stayed + booked with the budget. Without matching daily rows, a single **Revenue on the books** tile is shown instead.
+- **Months ahead:** each later month on its own row: on the books, occupancy, revenue, ADR, pickup since the previous upload, **booking pace** (rooms gained per week over up to the last four weeks of uploads) and its projected month end, with the month's priority, rate strategy, sales action and demand driver.
+- **Booking pace:** occupancy on the books for each week ahead (Monday to Sunday, from the daily rows), from the first upload; from the second upload each week is shown next to the previous report, and a line per month shows how it built up across uploads. Without matching daily rows, it shows each month instead.
+- **Daily inventory:** a daily chart coloured by value focus, opening on the week of the reporting date. Choose This week, Next week, Next 4 weeks, a month or All days, pick any From / To dates, or step through periods with the arrows; the line above the chart totals room nights sold, occupancy, revenue and ADR for the range. Shown only when the daily table matches the monthly figures (same rooms available); the upload preview warns otherwise.
+
+**Budgets:** add a budget column to the monthly forecast table (any of: `Budget`, `Budget Revenue`, `Revenue Budget`, `Monthly Budget`, `Revenue Target`), with each month's revenue budget in rands. When this month has a budget, the report shows **Monthly Budget** and **Budget Variance** tiles; the outlook table shows each month's budget and how far revenue on the books is ahead or behind; the projection card shows each month as a percentage of its budget. Without the column, the budget tiles are left out. Nothing is assumed.
+
+**Keys:** the number of rooms (keys) is worked out from the monthly figures: rooms available ÷ nights in the month (840 ÷ 30 = 28).
+
+The projection is rooms on the books plus the month's weekly pace times the weeks left until its last night, capped at the rooms available; revenue is projected at the current ADR. It needs at least two uploads and is labelled as an estimate.
+
 ## Weekly and monthly uploads
 
 Every upload is either **monthly** or **weekly**, chosen in the upload box's **Period** toggle (two calendar icons: month and week; their names show on hover). Both kinds sit side by side for every client, so a client can have, say, weekly Meta and Google reports and monthly Property24 figures.
@@ -84,14 +145,14 @@ Every upload is either **monthly** or **weekly**, chosen in the upload box's **P
 
 - The report uses the full width of the screen (capped on very wide monitors so it stays readable).
 - **Full screen** in the report header hides the browser's toolbars, for presenting on a TV or projector. It's hidden on phones and on browsers that don't support it (iPhone).
-- **Print** prints the month and dashboard currently on screen, or saves them as a PDF from the print dialog ("Save as PDF" / "Microsoft Print to PDF"). On paper:
+- **Download** creates the **whole report** as one PDF for the month (or week) on screen as one document: the Overview, then each channel page, then Sales or Room sales, Goals and the ROI planner, each section starting on a new page. It opens the browser's save dialog: choose **Save as PDF** ("Microsoft Print to PDF" on Windows) as the destination. On paper:
   - the brand colours and dark results band are kept
   - buttons, tabs and the month picker are left out
   - every ad and the full "Every number" table are included, even if collapsed on screen
   - charts are resized to fit A4, and cards aren't split across pages
   - the footer shows the date it was printed
 
-Pressing Cmd/Ctrl+P also works, but the **Print** button gives the best result because it resizes the charts first.
+Pressing Cmd/Ctrl+P also works, but the **Download** button gives the best result because it resizes the charts first.
 
 ## Clients with several companies or streams
 
@@ -110,6 +171,8 @@ A client account can hold several **dashboards**, one per sub-company or stream 
 | **Admin** (per client) | Someone at the client, added under the client's **Logins** with permission *Admin* | Views their own client's reports, and from **Manage this client's data** uploads CSVs, writes notes, insights and warnings, and edits goals, roadmap, benchmark, planner values and logo, for **their client only**. Can't see other clients, manage logins or delete the client. |
 | **Viewer** (per client) | Added under **Logins** with permission *Viewer* | Views their own client's reports only. |
 
+- **One login, several clients:** adding an email that already has a login (on a client's **Logins**, or as the first login of a new client) gives it access to that client too, keeping its password. Each client has its own permission (Viewer or Admin) for that login. Someone with several clients gets a **Client** switcher at the top of their report sidebar, and "Manage data" only for clients where they're an admin. Removing a login from a client only takes that client away; the login is deleted when it has no clients left, or when its last client is deleted.
+- **Logins page (super admins):** **Add a login to several clients** at once (tick clients grouped by category, with "Select all" and a permission per client), and a table of every client login with the clients it can see.
 - Each client can have several logins. Super admins add them, change Viewer ↔ Admin, reset passwords and remove them on the client's page. Changing someone's permission signs them out so it applies immediately.
 - Every page and action re-checks permission on the server, so a client admin can't reach another client even by editing a web address or form.
 - If you're ever locked out completely, `npm run setup` recreates the super admin from `ADMIN_EMAIL` and `ADMIN_PASSWORD` in `.env`.
@@ -124,13 +187,13 @@ The report has a sidebar with the client's logo, the reporting period, a company
 - **Goals:** each monthly target with last month vs this month and a progress bar.
 - **ROI planner:** sliders for budget, cost per lead, lead-to-sale rate and average sale value, starting from the month's real figures, with projected leads, sales, sales value and return. Labelled as estimates.
 
-The top bar shows the blended cost per lead and click-to-lead rate, plus **Full screen** and **Print**.
+The top bar shows the blended cost per lead and click-to-lead rate, plus **Full screen** and **Download**.
 
 ### What admins fill in (client page)
 
 - **Months on file → Insights and warnings:** per month, choose Overview or a channel; write insights one per line (start with "Title:" to make the title bold), and optionally a warning title and details (shown as a red box). Goals entered by hand (like reservations) get their monthly figures here too.
 - **Report settings:** market benchmark range, goals (from an uploaded figure or entered by hand, "at least" or "at most"), roadmap milestones (done, in progress, planned), and ROI planner starting values.
-- **Sales figures:** uploaded as a CSV, monthly or weekly (calendar icon toggle). Two layouts are read: a **summary** with one row per status (status, units, value, size; percentage columns and a Total row are ignored, so a copy of the report's own table works) or a **unit list** with one row per unit and its status, value and size, which is counted and added up per status. A preview shows the totals before saving; re-uploading a period replaces it. "Download the sales template" gives the summary layout. In the report, the Sales section follows the Monthly / Weekly view; a week without weekly sales figures shows the month's, and figures from a later period are never shown for an earlier one.
+- **Sales figures:** uploaded as a CSV, monthly or weekly (calendar icon toggle). Two layouts are read: a **summary** with one row per status (status, units, value, size; percentage columns and a Total row are ignored, so a copy of the report's own table works) or a **unit list** with one row per unit and its status, value and size, which is counted and added up per status. A preview shows the totals before saving; re-uploading a period replaces it. Optional **comments** can be added with the upload or later ("Add comment" on a saved upload); they appear under the figures in the report and in the printed PDF, and are kept when a period is re-uploaded without a new comment. "Download the sales template" gives the summary layout. In the report, the Sales section follows the Monthly / Weekly view; a week without weekly sales figures shows the month's, and figures from a later period are never shown for an earlier one.
 - **Client logo:** PNG or JPG; it's resized automatically.
 
 ## Monthly workflow
@@ -250,3 +313,40 @@ src/
   proxy.ts                 redirects signed-out visitors
 scripts/seed.ts            admin account and demo data
 ```
+
+## Hosting on Google Cloud (Cloud Run)
+
+The portal runs as a container on **Cloud Run**, in the same Google Cloud project as its Firestore database. On Cloud Run it reaches Firestore with its own identity (a service account), so **no key file is uploaded or needed**. The sign-in secret lives in **Secret Manager**.
+
+**One-time, on your Mac:**
+
+1. Install the Google Cloud CLI: https://cloud.google.com/sdk/docs/install (or `brew install --cask google-cloud-sdk`).
+2. Sign in and choose the project that holds the Firestore database:
+   ```bash
+   gcloud auth login
+   gcloud projects list
+   gcloud config set project YOUR-PROJECT-ID
+   ```
+3. Billing must be on for that project (Firebase "Blaze" plan). Cloud Run's free allowance covers a small portal like this, so costs stay low.
+
+**Deploy (first time and every update):**
+
+```bash
+npm run deploy:gcp
+```
+
+`scripts/deploy-gcp.sh` turns on the needed services, creates the site's identity (`aimex-reports-run`) with Firestore access, stores a sign-in secret (`session-secret`), builds the container from the `Dockerfile` and deploys service `aimex-reports` in **europe-west1 (Belgium)**, a region where Cloud Run can map custom domains directly (Johannesburg can't). It prints the live address (`https://aimex-reports-….run.app`). Later runs only publish the new code.
+
+Notes:
+- The Firestore data is the same as before, so clients, logins and figures all carry over. A new sign-in secret means everyone signs in once more.
+- `.gcloudignore` / `.dockerignore` keep `.env` files and any service-account key out of uploads and images.
+- To change region or name: `GCP_REGION=europe-west4 GCP_SERVICE=reports npm run deploy:gcp` (use the same `GCP_REGION` for the domain step).
+
+**Custom domain:**
+
+```bash
+npm run domain:gcp -- reports.aimexstudio.co.za
+```
+
+The first time for a domain, Google asks you to prove you own it (a TXT record at your registrar); then run the command again. It creates the mapping and prints the DNS record (usually a CNAME to `ghs.googlehosted.com`) to add at your registrar. Google issues the HTTPS certificate automatically, usually within 15 minutes. Cloud Run's domain mapping works in europe-west1/4, europe-north1, us-central1/east1/east4/west1 and asia-east1/northeast1/southeast1.
+

@@ -7,11 +7,15 @@ import { hashPassword, requireAdmin, requireClientAccess, requireStaff } from "@
 import { pdfToText } from "@/lib/pdf-text";
 import { parseMetricsCsv } from "@/lib/csv";
 import { parseSalesCsv } from "@/lib/sales-import";
+import { parseRoomSales } from "@/lib/room-sales";
+import { cleanChannels } from "@/lib/marketing-channels";
+import { membershipsOf } from "@/lib/memberships";
+import type { ClientCategory } from "@/lib/category";
 import {
-  EmailTakenError, addClientUser, createClientWithLogin, createDashboard, deleteClientCascade, deleteDashboard,
+  EmailTakenError, LoginError, addUserToClients, saveStoredFile, deleteStoredFile, markImportHasFile, addClientUser, createClientWithLogin, createDashboard, deleteClientCascade, deleteDashboard,
   deleteMonth as removeMonth, getClient, getDashboard, getUser, removeClientUser, renameDashboard, saveDashboardSettings,
   saveGoalActuals, saveImport, saveMonthNote as storeNote, saveSalesSnapshot, saveSectionNotes, setClientLogo, setClientUserRole, setPassword,
-  updateClientFields,
+  updateClientFields, saveRoomSales, removeChannelFromPeriod, setSnapshotComment,
 } from "@/lib/data";
 import type { Goal, Milestone } from "@/db/types";
 import { isPeriod as isMonth, monthLabel } from "@/lib/metrics";
@@ -38,18 +42,20 @@ export async function createClient(_p: FormState, f: FormData): Promise<FormStat
   if (!password) password = generatePassword();
 
   const passwordHash = await hashPassword(password);
-  let client;
+  let made;
   try {
-    client = await createClientWithLogin(
-      { name, contactName: str(f, "contactName") || null, currency, adminNotes: str(f, "adminNotes") || null },
+    made = await createClientWithLogin(
+      { name, contactName: str(f, "contactName") || null, currency, adminNotes: str(f, "adminNotes") || null, category: asCategory(str(f, "category")) },
       { email, passwordHash },
     );
   } catch (e) {
-    if (e instanceof EmailTakenError) return { error: e.message };
+    if (e instanceof EmailTakenError || e instanceof LoginError) return { error: e.message };
     throw e;
   }
   revalidatePath("/admin");
-  return { ok: `${name} is set up.`, email, password, clientId: client.id };
+  // An existing login just gains this client: it keeps its own password, so no new details are shown.
+  if (made.existingLogin) return { ok: `${name} is set up. ${email} already had a login and can now also see ${name}, with the same password.`, clientId: made.client.id };
+  return { ok: `${name} is set up.`, email, password, clientId: made.client.id };
 }
 
 export async function updateClient(_p: FormState, f: FormData): Promise<FormState> {
@@ -62,6 +68,7 @@ export async function updateClient(_p: FormState, f: FormData): Promise<FormStat
     contactName: str(f, "contactName") || null,
     currency: CURRENCIES.includes(str(f, "currency")) ? str(f, "currency") : "ZAR",
     adminNotes: str(f, "adminNotes") || null,
+    category: asCategory(str(f, "category")),
   });
   revalidatePath(`/admin/clients/${id}`);
   revalidatePath("/admin");
@@ -76,7 +83,7 @@ export async function resetClientPassword(_p: FormState, f: FormData): Promise<F
   if (password && password.length < 10) return { error: "Passwords need at least 10 characters, or leave it blank to generate one." };
   if (!password) password = generatePassword();
   const login = await getUser(userId);
-  if (!login || login.clientId !== clientId) return { error: "That login doesn’t belong to this client." };
+  if (!login || !membershipsOf(login)[clientId]) return { error: "That login doesn’t belong to this client." };
   await setPassword(login.id, await hashPassword(password));
   return { ok: "Password changed. They’ve been signed out everywhere.", password, email: login.email };
 }
@@ -94,6 +101,8 @@ export type ImportResult = { error?: string; errors?: string[]; ok?: string; war
 export interface ImportFile {
   csv: string;
   filename: string;
+  /** For PDF reports: the original file (base64), kept so it can be downloaded later. CSVs are kept as text. */
+  pdfBase64?: string;
   defaultMonth: string;
   defaultChannel: string;
   conversionsAs?: "conversions" | "leads";
@@ -142,7 +151,7 @@ export async function importCsvFiles(input: { clientId: string; dashboardId: str
   const allMonths = new Set(parsedFiles.flatMap((p) => p.parsed.months));
   const note = input.note.trim().slice(0, 4000) || undefined;
   for (const { f, parsed } of parsedFiles) {
-    await saveImport({
+    const importId = await saveImport({
       clientId: client.id,
       dashboardId: dash.id,
       rows: parsed.rows,
@@ -152,6 +161,16 @@ export async function importCsvFiles(input: { clientId: string; dashboardId: str
       breakdowns: parsed.breakdowns,
       partialMonths: parsed.partialMonths,
     });
+    // Keep the uploaded file itself, so it can be downloaded from the upload history.
+    try {
+      const isPdf = !!f.pdfBase64 && f.pdfBase64.length <= 14_000_000;
+      await saveStoredFile(client.id, dash.id, importId, isPdf
+        ? { filename: f.filename || "report.pdf", contentType: "application/pdf", encoding: "base64", data: f.pdfBase64! }
+        : { filename: f.filename || "upload.csv", contentType: "text/csv; charset=utf-8", encoding: "utf8", data: f.csv });
+      await markImportHasFile(client.id, dash.id, importId);
+    } catch (e) {
+      console.error("[upload] couldn’t keep the file", (e as Error).message); // the figures are saved either way
+    }
   }
 
   revalidatePath(`/admin/clients/${client.id}`);
@@ -240,13 +259,15 @@ export async function addClientUserAction(_p: FormState, f: FormData): Promise<F
   if (password && password.length < 10) return { error: "Passwords need at least 10 characters, or leave it blank to generate one." };
   if (!(await getClient(clientId))) return { error: "That client no longer exists." };
   if (!password) password = generatePassword();
+  let r;
   try {
-    await addClientUser(clientId, email, await hashPassword(password), asRole(str(f, "role")));
+    r = await addClientUser(clientId, email, await hashPassword(password), asRole(str(f, "role")));
   } catch (e) {
-    if (e instanceof EmailTakenError) return { error: e.message };
+    if (e instanceof EmailTakenError || e instanceof LoginError) return { error: e.message };
     throw e;
   }
   revalidatePath(`/admin/clients/${clientId}`);
+  if (r.existing) return { ok: `${email} already had a login, so they can now also see this client, with their existing password.` };
   return { ok: `${email} can now sign in.`, email, password };
 }
 
@@ -354,14 +375,15 @@ export async function setLogoAction(input: { clientId: string; dataUrl: string |
  * Saves sales figures from an uploaded file for one month or week. The file is read again
  * on the server; the browser's preview is never trusted.
  */
-export async function saveSalesUpload(input: { clientId: string; dashboardId: string; period: string; csv: string; filename: string }): Promise<FormState> {
+export async function saveSalesUpload(input: { clientId: string; dashboardId: string; period: string; csv: string; filename: string; comment?: string }): Promise<FormState> {
   await requireClientAccess(String(input.clientId));
   if (!isMonth(input.period)) return { error: "Choose the month or week these figures are for." };
   if (input.csv.length > 4_000_000) return { error: "That file is too large. Keep sales files under 4 MB." };
   const parsed = parseSalesCsv(input.csv);
   if (parsed.errors.length) return { error: parsed.errors.join(" ") };
   try {
-    await saveSalesSnapshot(input.clientId, input.dashboardId, input.period, parsed.rows.slice(0, 20), input.filename.slice(0, 120) || null);
+    await saveSalesSnapshot(input.clientId, input.dashboardId, input.period, parsed.rows.slice(0, 20), input.filename.slice(0, 120) || null, input.comment?.trim().slice(0, 3000) || null);
+    await saveStoredFile(input.clientId, input.dashboardId, `sales:${input.period}`, { filename: input.filename.slice(0, 120) || "sales.csv", contentType: "text/csv; charset=utf-8", encoding: "utf8", data: input.csv });
   } catch (e) {
     return { error: (e as Error).message };
   }
@@ -374,7 +396,10 @@ export async function deleteSalesAction(f: FormData) {
   await requireClientAccess(clientId);
   const month = str(f, "month");
   if (!isMonth(month)) return;
-  try { await saveSalesSnapshot(clientId, str(f, "dashboardId"), month, null); } catch { /* page shows current state */ }
+  try {
+    await saveSalesSnapshot(clientId, str(f, "dashboardId"), month, null);
+    await deleteStoredFile(clientId, str(f, "dashboardId"), `sales:${month}`);
+  } catch { /* page shows current state */ }
   revalidatePath(`/admin/clients/${clientId}`);
 }
 
@@ -391,4 +416,113 @@ export async function extractPdfText(input: { base64: string }): Promise<{ text?
   } catch {
     return { error: "Couldn’t read that PDF. If it’s a scanned image rather than a downloaded report, it has no text to read." };
   }
+}
+
+const asCategory = (v: string): ClientCategory => (v === "collection" ? "collection" : "development");
+
+/* ---------------- Spectrum Collection: room sales uploads ---------------- */
+
+/** Saves a room sales (on the books) report. The file is read again here; the browser's preview is never trusted. */
+export async function saveRoomSalesUpload(input: { clientId: string; dashboardId: string; csv: string; filename: string; comment?: string }): Promise<FormState> {
+  await requireClientAccess(String(input.clientId));
+  if (input.csv.length > 4_000_000) return { error: "That file is too large. Keep room sales files under 4 MB." };
+  const parsed = parseRoomSales(input.csv);
+  if (!parsed.snapshot) return { error: parsed.errors.join(" ") };
+  const snap = { ...parsed.snapshot, days: parsed.snapshot.days.slice(0, 400), filename: input.filename.slice(0, 120) || null, comment: input.comment?.trim().slice(0, 3000) || null };
+  try {
+    await saveRoomSales(input.clientId, input.dashboardId, snap.reportDate, snap);
+    await saveStoredFile(input.clientId, input.dashboardId, `rooms:${snap.reportDate}`, { filename: snap.filename || "room-sales.csv", contentType: "text/csv; charset=utf-8", encoding: "utf8", data: input.csv });
+  } catch (e) {
+    return { error: (e as Error).message };
+  }
+  revalidatePath(`/admin/clients/${input.clientId}`);
+  return { ok: `Room sales as at ${snap.reportDate} saved.` };
+}
+
+export async function deleteRoomSalesAction(f: FormData) {
+  const clientId = str(f, "clientId");
+  await requireClientAccess(clientId);
+  const date = str(f, "reportDate");
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return;
+  try {
+    await saveRoomSales(clientId, str(f, "dashboardId"), date, null);
+    await deleteStoredFile(clientId, str(f, "dashboardId"), `rooms:${date}`);
+  } catch { /* page shows current state */ }
+  revalidatePath(`/admin/clients/${clientId}`);
+}
+
+/* ---------------- marketing channels in use (super admins only) ---------------- */
+
+export async function saveMarketingChannelsAction(_p: FormState, f: FormData): Promise<FormState> {
+  await requireAdmin(); // super admins only: client admins and viewers are turned away
+  const clientId = str(f, "clientId");
+  const dashId = str(f, "dashboardId");
+  const channels = cleanChannels(f.getAll("channel"));
+  try {
+    await saveDashboardSettings(clientId, dashId, { marketingChannels: channels });
+  } catch (e) {
+    return { error: (e as Error).message };
+  }
+  revalidatePath(`/admin/clients/${clientId}`);
+  return { ok: channels.length ? `Saved: ${channels.length} channel${channels.length === 1 ? "" : "s"} shown on the report.` : "Saved: no channels, so the banner is hidden." };
+}
+
+/** Removes one channel from one month or week (e.g. an upload saved under the wrong channel). */
+export async function removeChannelAction(f: FormData) {
+  const clientId = str(f, "clientId");
+  await requireClientAccess(clientId);
+  const period = str(f, "month");
+  const channel = str(f, "channel").slice(0, 80);
+  if (!isMonth(period) || !channel) return;
+  await removeChannelFromPeriod(clientId, str(f, "dashboardId"), period, channel);
+  revalidatePath(`/admin/clients/${clientId}`);
+}
+
+/** Edits the comment on a saved sales or room sales upload. */
+export async function saveSnapshotCommentAction(_p: FormState, f: FormData): Promise<FormState> {
+  const clientId = str(f, "clientId");
+  await requireClientAccess(clientId);
+  const field = str(f, "field") === "roomSales" ? "roomSales" : "sales";
+  const key = str(f, "key");
+  const ok = field === "roomSales" ? /^\d{4}-\d{2}-\d{2}$/.test(key) : isMonth(key);
+  if (!ok) return { error: "Unknown period." };
+  const comment = str(f, "comment").slice(0, 3000) || null;
+  if (!(await setSnapshotComment(clientId, str(f, "dashboardId"), field, key, comment))) return { error: "Those figures no longer exist." };
+  revalidatePath(`/admin/clients/${clientId}`);
+  return { ok: comment ? "Comment saved." : "Comment removed." };
+}
+
+/* ---------------- one login, several clients (super admins only) ---------------- */
+
+export type BulkResult = FormState & { added?: string[]; already?: string[]; created?: boolean };
+
+export async function bulkAddLoginAction(_p: BulkResult, f: FormData): Promise<BulkResult> {
+  await requireAdmin();
+  const email = str(f, "email").toLowerCase();
+  let password = str(f, "password");
+  if (!validEmail(email)) return { error: "Enter a valid email address." };
+  if (password && password.length < 10) return { error: "Passwords need at least 10 characters, or leave it blank to generate one." };
+  const ids = [...new Set(f.getAll("client").map(String))].slice(0, 200);
+  if (!ids.length) return { error: "Tick at least one client." };
+  const entries = [];
+  for (const id of ids) {
+    if (!(await getClient(id))) continue;
+    entries.push({ clientId: id, role: asRole(str(f, `role:${id}`)) });
+  }
+  if (!entries.length) return { error: "Those clients no longer exist." };
+  if (!password) password = generatePassword();
+  let r;
+  try {
+    r = await addUserToClients(email, await hashPassword(password), entries);
+  } catch (e) {
+    if (e instanceof EmailTakenError || e instanceof LoginError) return { error: e.message };
+    throw e;
+  }
+  revalidatePath("/admin/logins");
+  for (const id of r.added) revalidatePath(`/admin/clients/${id}`);
+  const n = (k: number) => `${k} client${k === 1 ? "" : "s"}`;
+  const ok = r.added.length
+    ? `${email} can now see ${n(r.added.length)}${r.already.length ? ` (and already had ${n(r.already.length)})` : ""}.${r.created ? "" : " They already had a login, so their password is unchanged."}`
+    : `${email} already had access to all ${n(r.already.length)} ticked. Nothing changed.`;
+  return { ok, added: r.added, already: r.already, created: r.created, ...(r.created ? { email, password } : {}) };
 }

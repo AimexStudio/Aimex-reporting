@@ -6,6 +6,10 @@ import {
 } from "@/db";
 import { deriveTotals, monthLabel, withDerived } from "./metrics";
 import { kindOf, words, type PeriodKind } from "./period";
+import { clientCategory, type ClientCategory } from "./category";
+import type { RoomSnapshot } from "./room-sales";
+import { cleanChannels } from "./marketing-channels";
+import { membershipFields, membershipsOf, type ClientRole } from "./memberships";
 import type { ParsedRow } from "./csv";
 
 /* ---------------- refs ---------------- */
@@ -19,6 +23,8 @@ const monthsCol = (clientId: string, dashId: string) => dashCol(clientId).doc(da
 const periodsCol = (clientId: string, dashId: string, kind: PeriodKind) => dashCol(clientId).doc(dashId).collection(kind === "week" ? "weeks" : "months");
 const periodDoc = (clientId: string, dashId: string, id: string) => periodsCol(clientId, dashId, kindOf(id)).doc(id);
 const importsCol = (clientId: string, dashId: string) => dashCol(clientId).doc(dashId).collection("imports");
+/** Uploaded files themselves, stored in pieces (a Firestore document holds at most 1 MB). */
+const filesCol = (clientId: string, dashId: string) => dashCol(clientId).doc(dashId).collection("files");
 // Pre-dashboards layout, read only for the one-time move below.
 const legacyMonthsCol = (clientId: string) => clientsCol().doc(clientId).collection("months");
 const legacyImportsCol = (clientId: string) => clientsCol().doc(clientId).collection("imports");
@@ -51,37 +57,107 @@ export async function getClientLogin(clientId: string): Promise<User | null> {
   return (await listClientUsers(clientId))[0] ?? null;
 }
 
-/** Every login that belongs to a client (viewers and client admins), oldest first. */
-export async function listClientUsers(clientId: string): Promise<User[]> {
-  const q = await usersCol().where("clientId", "==", clientId).get();
-  return q.docs.map((d) => ({ ...(d.data() as Omit<User, "id">), id: d.id })).sort((a, b) => a.createdAt - b.createdAt);
+/**
+ * Every login that can see a client (viewers and client admins), oldest first. Each is returned with
+ * `role` set to its permission for THIS client, and `otherClients` = how many other clients it can see.
+ */
+export async function listClientUsers(clientId: string): Promise<(User & { otherClients: number })[]> {
+  const [byList, byLegacy] = await Promise.all([
+    usersCol().where("clientIds", "array-contains", clientId).get(),
+    usersCol().where("clientId", "==", clientId).get(),
+  ]);
+  const seen = new Map<string, User>();
+  for (const d of [...byList.docs, ...byLegacy.docs]) seen.set(d.id, { ...(d.data() as Omit<User, "id">), id: d.id });
+  return [...seen.values()]
+    .map((u) => ({ u, m: membershipsOf(u) }))
+    .filter(({ m }) => m[clientId])
+    .map(({ u, m }) => ({ ...u, role: m[clientId], otherClients: Object.keys(m).length - 1 }))
+    .sort((a, b) => a.createdAt - b.createdAt);
 }
 
-export async function addClientUser(clientId: string, email: string, passwordHash: string, role: "client" | "client_admin"): Promise<User> {
-  const id = newId();
-  const user: Omit<User, "id"> = { email, passwordHash, role, clientId, sessionVersion: 1, lastLoginAt: null, createdAt: now() };
-  await db.runTransaction(async (tx) => {
+/**
+ * Gives an email access to a client. A new email gets a new login (with this password);
+ * an existing client login just gains this client, keeping its own password.
+ */
+export async function addClientUser(clientId: string, email: string, passwordHash: string, role: ClientRole): Promise<{ user: User; existing: boolean }> {
+  return db.runTransaction(async (tx) => {
     const eRef = emailRef(email);
-    if ((await tx.get(eRef)).exists) throw new EmailTakenError(email);
+    const e = await tx.get(eRef);
+    if (e.exists) {
+      const uRef = usersCol().doc((e.data() as { userId: string }).userId);
+      const us = await tx.get(uRef);
+      const u = { ...(us.data() as Omit<User, "id">), id: uRef.id };
+      if (u.role === "admin") throw new LoginError(`${email} is a super admin and can already see every client.`);
+      const m = membershipsOf(u);
+      if (m[clientId]) throw new LoginError(`${email} already has access to this client.`);
+      const f = membershipFields({ ...m, [clientId]: role });
+      // A changed overall role means a new sign-in, so the session always matches the permissions.
+      tx.update(uRef, { ...f, ...(f.role !== u.role ? { sessionVersion: (u.sessionVersion ?? 1) + 1 } : {}) });
+      return { user: { ...u, ...f }, existing: true };
+    }
+    const id = newId();
+    const user: Omit<User, "id"> = { email, passwordHash, ...membershipFields({ [clientId]: role }), sessionVersion: 1, lastLoginAt: null, createdAt: now() };
     tx.set(usersCol().doc(id), user);
     tx.set(eRef, { userId: id });
+    return { user: { ...user, id }, existing: false };
   });
-  return { ...user, id };
 }
 
-/** Changes a client login between viewer and client admin. Signs them out so the new permission applies at once. */
-export async function setClientUserRole(clientId: string, userId: string, role: "client" | "client_admin") {
+/**
+ * Gives one email access to several clients at once. The first client creates the login if it's new
+ * (with this password); the rest just add access. Returns what happened for each client.
+ */
+export async function addUserToClients(email: string, passwordHash: string, entries: { clientId: string; role: ClientRole }[]) {
+  const added: string[] = [], already: string[] = [];
+  let created = false;
+  for (const e of entries) {
+    try {
+      const r = await addClientUser(e.clientId, email, passwordHash, e.role);
+      added.push(e.clientId);
+      if (!r.existing) created = true;
+    } catch (err) {
+      if (err instanceof LoginError && /already has access/.test(err.message)) already.push(e.clientId);
+      else throw err;
+    }
+  }
+  return { created, added, already };
+}
+
+/** Every client login (not super admins) with its clients and permissions, by email. */
+export async function listClientLogins(): Promise<{ id: string; email: string; lastLoginAt: number | null; memberships: Record<string, ClientRole> }[]> {
+  const q = await usersCol().get();
+  return q.docs
+    .map((d) => ({ ...(d.data() as Omit<User, "id">), id: d.id }))
+    .filter((u) => u.role !== "admin")
+    .map((u) => ({ id: u.id, email: u.email, lastLoginAt: u.lastLoginAt ?? null, memberships: membershipsOf(u) }))
+    .filter((u) => Object.keys(u.memberships).length)
+    .sort((a, b) => a.email.localeCompare(b.email));
+}
+
+/** A readable reason a login change can't be made. */
+export class LoginError extends Error {}
+
+/** Changes a login's permission for one client. Signs them out so the new permission applies at once. */
+export async function setClientUserRole(clientId: string, userId: string, role: ClientRole) {
   const u = await getUser(userId);
-  if (!u || u.clientId !== clientId || u.role === "admin") throw new Error("That login doesn’t belong to this client.");
-  await usersCol().doc(userId).update({ role, sessionVersion: (u.sessionVersion ?? 1) + 1 });
+  const m = u ? membershipsOf(u) : {};
+  if (!u || !m[clientId]) throw new Error("That login doesn’t belong to this client.");
+  await usersCol().doc(userId).update({ ...membershipFields({ ...m, [clientId]: role }), sessionVersion: (u.sessionVersion ?? 1) + 1 });
 }
 
+/** Takes a client away from a login; the login itself is deleted only when it has no clients left. */
 export async function removeClientUser(clientId: string, userId: string) {
   const u = await getUser(userId);
-  if (!u || u.clientId !== clientId || u.role === "admin") throw new Error("That login doesn’t belong to this client.");
+  const m = u ? { ...membershipsOf(u) } : {};
+  if (!u || !m[clientId]) throw new Error("That login doesn’t belong to this client.");
+  delete m[clientId];
   await db.runTransaction(async (tx) => {
-    tx.delete(usersCol().doc(userId));
-    tx.delete(emailRef(u.email));
+    if (!Object.keys(m).length) {
+      tx.delete(usersCol().doc(userId));
+      tx.delete(emailRef(u.email));
+    } else {
+      tx.update(usersCol().doc(userId), { ...membershipFields(m), sessionVersion: (u.sessionVersion ?? 1) + 1 });
+    }
   });
 }
 
@@ -189,25 +265,20 @@ export async function getClient(id: string): Promise<Client | null> {
 export async function createClientWithLogin(
   c: Omit<Client, "id" | "createdAt">,
   login: { email: string; passwordHash: string },
-): Promise<Client> {
+): Promise<{ client: Client; existingLogin: boolean }> {
   const clientId = newId();
-  const userId = newId();
   const client: Omit<Client, "id"> = { ...c, createdAt: now() };
-  await db.runTransaction(async (tx) => {
-    const eRef = emailRef(login.email);
-    if ((await tx.get(eRef)).exists) throw new EmailTakenError(login.email);
-    tx.set(clientsCol().doc(clientId), client);
-    const user: Omit<User, "id"> = {
-      email: login.email, passwordHash: login.passwordHash, role: "client", clientId,
-      sessionVersion: 1, lastLoginAt: null, createdAt: now(),
-    };
-    tx.set(usersCol().doc(userId), user);
-    tx.set(eRef, { userId });
-  });
-  return { ...client, id: clientId };
+  await clientsCol().doc(clientId).set(client);
+  try {
+    const r = await addClientUser(clientId, login.email, login.passwordHash, "client");
+    return { client: { ...client, id: clientId }, existingLogin: r.existing };
+  } catch (e) {
+    await clientsCol().doc(clientId).delete(); // nothing half-made is left behind
+    throw e;
+  }
 }
 
-export async function updateClientFields(id: string, fields: Omit<Client, "id" | "createdAt" | "logo">) {
+export async function updateClientFields(id: string, fields: Omit<Client, "id" | "createdAt" | "logo" | "period">) {
   await clientsCol().doc(id).update({ ...fields });
 }
 
@@ -239,19 +310,14 @@ export async function updateClientAndEmail(id: string, fields: Omit<Client, "id"
 
 /** Deletes the client, their logins, and every month, note and upload record. */
 export async function deleteClientCascade(id: string) {
-  const logins = await usersCol().where("clientId", "==", id).get();
-  for (const u of logins.docs) {
-    const email = (u.data() as User).email;
-    await emailRef(email).delete();
-    await u.ref.delete();
-  }
+  for (const u of await listClientUsers(id)) await removeClientUser(id, u.id);
   await db.recursiveDelete(clientsCol().doc(id));
 }
 
 export async function listClients() {
   const [clientsSnap, loginsSnap] = await Promise.all([
     clientsCol().orderBy("name").get(),
-    usersCol().where("role", "==", "client").get(),
+    usersCol().get(),
   ]);
   const logins = loginsSnap.docs.map((d) => ({ ...(d.data() as Omit<User, "id">), id: d.id }));
   return Promise.all(
@@ -264,8 +330,12 @@ export async function listClients() {
       const months = [...new Set(perDash.flat())].sort();
       // "behind" if any dashboard is missing its latest month
       const oldestLatest = perDash.map((ms) => ms.sort().at(-1) ?? "").sort()[0] ?? null;
-      const login = logins.find((u) => u.clientId === c.id);
+      const login = logins.filter((u) => membershipsOf(u)[c.id]).sort((x, y) => x.createdAt - y.createdAt)[0];
+      // Older clients get their category saved once, so it no longer depends on their name.
+      const category: ClientCategory = clientCategory(c);
+      if (!c.category) await clientsCol().doc(c.id).update({ category });
       return {
+        category,
         ...c,
         email: login?.email ?? null,
         lastLoginAt: login?.lastLoginAt ?? null,
@@ -334,14 +404,42 @@ export async function saveDashboardSettings(clientId: string, dashId: string, se
   await dashCol(clientId).doc(dashId).update(clean);
 }
 
+/** Sets the comment on one saved sales snapshot ("sales", by period) or room sales report ("roomSales", by date). */
+export async function setSnapshotComment(clientId: string, dashId: string, field: "sales" | "roomSales", key: string, comment: string | null) {
+  const ref = dashCol(clientId).doc(dashId);
+  return db.runTransaction(async (tx) => {
+    const s = await tx.get(ref);
+    if (!s.exists) return false;
+    const all = { ...(((s.data() as DashboardDoc)[field] ?? {}) as Record<string, { comment?: string | null }>) };
+    if (!all[key]) return false;
+    all[key] = { ...all[key], comment };
+    tx.update(ref, { [field]: all });
+    return true;
+  });
+}
+
+/** Saves (or, with null, removes) a room sales upload, keyed by its reporting date. Keeps the latest 60. */
+export async function saveRoomSales(clientId: string, dashId: string, reportDate: string, snap: RoomSnapshot | null) {
+  const ref = dashCol(clientId).doc(dashId);
+  await db.runTransaction(async (tx) => {
+    const s = await tx.get(ref);
+    if (!s.exists) throw new Error("That dashboard no longer exists.");
+    const all = { ...((s.data() as DashboardDoc).roomSales ?? {}) };
+    if (snap) all[reportDate] = { ...snap, comment: snap.comment ?? all[reportDate]?.comment ?? null, updatedAt: now() };
+    else delete all[reportDate];
+    const keep = Object.keys(all).sort().slice(-60);
+    tx.update(ref, { roomSales: Object.fromEntries(keep.map((k) => [k, all[k]])) });
+  });
+}
+
 /** Saves (or, with null, removes) the hand-entered sales snapshot for one month of a dashboard. */
-export async function saveSalesSnapshot(clientId: string, dashId: string, month: string, rows: SalesRow[] | null, filename: string | null = null) {
+export async function saveSalesSnapshot(clientId: string, dashId: string, month: string, rows: SalesRow[] | null, filename: string | null = null, comment: string | null = null) {
   const ref = dashCol(clientId).doc(dashId);
   await db.runTransaction(async (tx) => {
     const s = await tx.get(ref);
     if (!s.exists) throw new Error("That dashboard no longer exists.");
     const sales = { ...((s.data() as DashboardDoc).sales ?? {}) };
-    if (rows) sales[month] = { month, rows, filename, updatedAt: now() };
+    if (rows) sales[month] = { month, rows, filename, comment: comment ?? sales[month]?.comment ?? null, updatedAt: now() };
     else delete sales[month];
     tx.update(ref, { sales });
   });
@@ -372,7 +470,7 @@ export interface MonthData {
 }
 
 export interface DashboardData {
-  client: { id: string; name: string; currency: string; logo: string | null };
+  client: { id: string; name: string; currency: string; logo: string | null; category: ClientCategory };
   /** Goals, milestones, benchmark and planner defaults (single dashboards only). */
   settings: DashboardSettings;
   /** Which dashboard this is, or the combined overview. */
@@ -394,7 +492,7 @@ export async function getDashboardData(clientId: string, dashId: string): Promis
   const [months, weeks] = await Promise.all([loadMonths(clientId, dashId, "month"), loadMonths(clientId, dashId, "week")]);
   const { id: _i, name: _n, createdAt: _c, ...settings } = dash;
   return {
-    client: { id: client.id, name: client.name, currency: client.currency, logo: client.logo ?? null },
+    client: { id: client.id, name: client.name, currency: client.currency, logo: client.logo ?? null, category: clientCategory(client) },
     settings,
     scope: { kind: "dashboard", id: dash.id, name: dash.name },
     months,
@@ -412,8 +510,9 @@ export async function getOverviewData(clientId: string): Promise<DashboardData |
   const dashboards = await getDashboards(clientId);
   const [months, weeks] = await Promise.all([overviewPeriods(clientId, dashboards, "month"), overviewPeriods(clientId, dashboards, "week")]);
   return {
-    client: { id: client.id, name: client.name, currency: client.currency, logo: client.logo ?? null },
-    settings: {},
+    client: { id: client.id, name: client.name, currency: client.currency, logo: client.logo ?? null, category: clientCategory(client) },
+    // The group overview shows every channel used by any of its companies.
+    settings: { marketingChannels: cleanChannels(dashboards.flatMap((d) => d.marketingChannels ?? [])) },
     scope: { kind: "overview", name: "All companies" },
     months,
     weeks,
@@ -532,6 +631,63 @@ async function loadMonths(clientId: string, dashId: string, kind: PeriodKind = "
   return list;
 }
 
+/* ---------------- uploaded files (originals) ---------------- */
+
+export interface StoredFile { filename: string; contentType: string; encoding: "utf8" | "base64"; data: string }
+const PIECE = 700_000; // characters per piece, well under Firestore's 1 MB per document
+
+/**
+ * Keeps an uploaded file, keyed by what it belongs to: an import id, "sales:<period>" or "rooms:<date>".
+ * Saving again under the same key replaces it.
+ */
+export async function saveStoredFile(clientId: string, dashId: string, key: string, f: StoredFile) {
+  const ref = filesCol(clientId, dashId).doc(key);
+  await deleteStoredFile(clientId, dashId, key);
+  // Text is stored without a byte-order mark; downloads add exactly one, so spreadsheets read it as UTF-8.
+  if (f.encoding === "utf8") f = { ...f, data: f.data.replace(/^\uFEFF/, "") };
+  const pieces = Math.max(1, Math.ceil(f.data.length / PIECE));
+  for (let i = 0; i < pieces; i++) await ref.collection("pieces").doc(String(i)).set({ data: f.data.slice(i * PIECE, (i + 1) * PIECE) });
+  await ref.set({ filename: f.filename.slice(0, 160), contentType: f.contentType, encoding: f.encoding, pieces, size: f.data.length, savedAt: now() });
+}
+
+export async function getStoredFile(clientId: string, dashId: string, key: string): Promise<StoredFile | null> {
+  const s = await filesCol(clientId, dashId).doc(key).get();
+  if (!s.exists) return null;
+  const m = s.data() as { filename: string; contentType: string; encoding: "utf8" | "base64"; pieces: number };
+  const parts = await Promise.all(Array.from({ length: m.pieces }, (_, i) => s.ref.collection("pieces").doc(String(i)).get()));
+  if (parts.some((p) => !p.exists)) return null;
+  return { filename: m.filename, contentType: m.contentType, encoding: m.encoding, data: parts.map((p) => (p.data() as { data: string }).data).join("") };
+}
+
+/** The keys of every file kept for a dashboard (import ids, "sales:…", "rooms:…"). */
+export async function listStoredFiles(clientId: string, dashId: string): Promise<string[]> {
+  return (await filesCol(clientId, dashId).select().get()).docs.map((d) => d.id);
+}
+
+/** Marks an upload in the history as having its file kept. */
+export async function markImportHasFile(clientId: string, dashId: string, importId: string) {
+  await importsCol(clientId, dashId).doc(importId).update({ hasFile: true });
+}
+
+export async function hasStoredFile(clientId: string, dashId: string, key: string) {
+  return (await filesCol(clientId, dashId).doc(key).get()).exists;
+}
+
+export async function deleteStoredFile(clientId: string, dashId: string, key: string) {
+  const ref = filesCol(clientId, dashId).doc(key);
+  const s = await ref.get();
+  if (!s.exists) return;
+  const n = (s.data() as { pieces?: number }).pieces ?? 0;
+  for (let i = 0; i < n; i++) await ref.collection("pieces").doc(String(i)).delete();
+  await ref.delete();
+}
+
+/** One month's or week's stored figures, for exporting. */
+export async function getPeriod(clientId: string, dashId: string, period: string): Promise<MonthDoc | null> {
+  const s = await periodDoc(clientId, dashId, period).get();
+  return s.exists ? (s.data() as MonthDoc) : null;
+}
+
 export async function listImports(clientId: string, dashId: string): Promise<ImportDoc[]> {
   const s = await importsCol(clientId, dashId).orderBy("importedAt", "desc").limit(24).get();
   return s.docs.map((d) => ({ ...(d.data() as Omit<ImportDoc, "id">), id: d.id }));
@@ -629,6 +785,27 @@ export async function saveGoalActuals(clientId: string, dashId: string, month: s
   if (!s.exists) return false;
   await ref.update({ goalActuals: actuals, updatedAt: now() });
   return true;
+}
+
+/**
+ * Removes one channel's figures (and its notes and partial-month mark) from one month or week.
+ * If it was the only channel, the whole period is removed.
+ */
+export async function removeChannelFromPeriod(clientId: string, dashId: string, period: string, channel: string) {
+  if (!(await getDashboard(clientId, dashId))) return false;
+  const ref = periodDoc(clientId, dashId, period);
+  return db.runTransaction(async (tx) => {
+    const s = await tx.get(ref);
+    if (!s.exists) return false;
+    const m = s.data() as MonthDoc;
+    const channels = (m.channels ?? []).filter((c) => c.channel !== channel);
+    if (channels.length === (m.channels ?? []).length) return false;
+    if (!channels.length) { tx.delete(ref); return true; }
+    const sectionNotes = { ...(m.sectionNotes ?? {}) }; delete sectionNotes[channel];
+    const partial = { ...(m.partial ?? {}) }; delete partial[channel];
+    tx.update(ref, { channels, sectionNotes, partial, updatedAt: now() });
+    return true;
+  });
 }
 
 export async function deleteMonth(clientId: string, dashId: string, month: string) {

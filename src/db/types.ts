@@ -27,6 +27,8 @@ export interface Client {
   logo?: string | null;
   /** Report by calendar month (default) or by ISO week. Monthly and weekly figures are stored separately. */
   period?: "month" | "week";
+  /** "development" (Developments) or "collection" (Spectrum Collection). */
+  category?: "development" | "collection";
   createdAt: number;
 }
 
@@ -40,7 +42,14 @@ export interface User {
    * "client"       = tied to one client: views its reports only.
    */
   role: "admin" | "client_admin" | "client";
-  /** For client and client_admin logins: the ONLY client they may see. Null for super admins. */
+  /**
+   * Clients this login may see, with the permission for each ("client" = viewer, "client_admin" = admin).
+   * Logins from before this existed only have clientId and role; see membershipsOf() in lib/memberships.
+   */
+  memberships?: Record<string, "client" | "client_admin">;
+  /** The keys of memberships, kept so logins can be looked up by client. */
+  clientIds?: string[];
+  /** For client and client_admin logins: their first client. Null for super admins. */
   clientId: string | null;
   /** Bumped on password change so existing login cookies stop working. */
   sessionVersion: number;
@@ -99,6 +108,8 @@ export interface ImportDoc {
   filename: string | null;
   rowCount: number;
   importedAt: number;
+  /** true when the uploaded file itself was kept and can be downloaded (uploads from before this was added: no). */
+  hasFile?: boolean;
 }
 
 export interface Goal {
@@ -130,11 +141,17 @@ export interface SalesRow {
 export interface SalesSnapshot {
   month: string; // "YYYY-MM" or a week "YYYY-Www"
   filename?: string | null;
+  /** Comments shown with these figures in the report. */
+  comment?: string | null;
   rows: SalesRow[];
   updatedAt: number;
 }
 
 export interface DashboardSettings {
+  /** Marketing channels in use, shown as a banner on the report's overview (ids from marketing-channels.ts; super admins only). */
+  marketingChannels?: string[];
+  /** Spectrum Collection: room sales (on the books) uploads, by reporting date "YYYY-MM-DD". */
+  roomSales?: Record<string, import("@/lib/room-sales").RoomSnapshot>;
   /** Sales snapshots by period: monthly ("YYYY-MM") and weekly ("YYYY-Www"). */
   sales?: Record<string, SalesSnapshot>;
   /** Market cost-per-result range for comparison, e.g. 120–200 for "Cape Town upscale property". */

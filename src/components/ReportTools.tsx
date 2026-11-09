@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { flushSync } from "react-dom";
 
 const look = "items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium text-white/85 ring-1 ring-white/25 hover:bg-white/10";
 const btn = `inline-flex ${look}`;
@@ -10,15 +11,19 @@ const btn = `inline-flex ${look}`;
  * lays the report out at a fixed A4-friendly width so charts resize to fit, opens every
  * collapsed section, prints, then puts everything back.
  */
-export function PrintButton() {
+export function PrintButton({ onPrepare, onDone }: { onPrepare?: () => void; onDone?: () => void } = {}) {
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
-    // Also prepare when someone uses the browser's own Print (Cmd/Ctrl+P).
-    const before = () => openDetails(true);
+    // Also prepare when someone uses the browser's own Print (Cmd/Ctrl+P): draw the whole report straight away.
+    const before = () => {
+      if (onPrepare) flushSync(onPrepare);
+      openDetails(true);
+    };
     const after = () => {
       openDetails(false);
       document.documentElement.classList.remove("printing");
+      onDone?.();
       window.dispatchEvent(new Event("resize"));
     };
     window.addEventListener("beforeprint", before);
@@ -31,21 +36,22 @@ export function PrintButton() {
 
   async function print() {
     setBusy(true);
+    onPrepare?.(); // draw every section of the report
     document.documentElement.classList.add("printing");
+    await new Promise((r) => setTimeout(r, 300));
     window.dispatchEvent(new Event("resize")); // charts re-measure at print width
-    await new Promise((r) => setTimeout(r, 600));
+    await new Promise((r) => setTimeout(r, 900));
     openDetails(true);
     setBusy(false);
     window.print();
   }
 
   return (
-    <button type="button" onClick={print} className={btn} disabled={busy} aria-label="Print or save this report as a PDF">
+    <button type="button" onClick={print} className={btn} disabled={busy} aria-label="Download the whole report as a PDF" title="Download the whole report as a PDF">
       <svg viewBox="0 0 24 24" className="size-4" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-        <path d="M7 9V3.5h10V9M7 17H5a2 2 0 0 1-2-2v-4a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v4a2 2 0 0 1-2 2h-2" />
-        <rect x="7" y="14" width="10" height="7" rx="1" />
+        <path d="M12 4v11M7.5 10.5 12 15l4.5-4.5M5 19.5h14" />
       </svg>
-      {busy ? "Preparing…" : "Print"}
+      {busy ? "Preparing…" : "Download"}
     </button>
   );
 }

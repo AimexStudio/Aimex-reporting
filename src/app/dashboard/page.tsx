@@ -6,7 +6,8 @@ export const metadata = { title: "Your report" };
 
 export default async function ClientDashboardPage() {
   // clientId comes ONLY from the signed-in account, so a client can never load another client's data.
-  const { user, clientId } = await requireClient();
+  const { clientId, canManage, clientIds } = await requireClient();
   return <ReportPage clientId={clientId} href={(v) => (v === "overview" ? "/dashboard" : `/dashboard/${v}`)}
-    manageHref={user.role === "client_admin" ? `/admin/clients/${clientId}` : null} />;
+    manageHref={canManage ? `/admin/clients/${clientId}` : null}
+    clientSwitch={clientIds.length > 1 ? clientIds : undefined} />;
 }

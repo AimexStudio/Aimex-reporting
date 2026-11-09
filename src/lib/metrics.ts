@@ -7,7 +7,7 @@ import { isWeekId, weekLabel } from "./period";
  * combined — never uploaded.
  */
 
-export type MetricKind = "count" | "currency" | "percent" | "multiple";
+export type MetricKind = "count" | "currency" | "percent" | "multiple" | "average";
 
 export interface MetricDef {
   key: string;
@@ -52,6 +52,7 @@ export const DERIVED_METRICS: (MetricDef & {
   { key: "roas", inputs: ["revenue", "spend"], label: "Return on ad spend", kind: "multiple", higherIsBetter: true, compute: (m) => div(m.revenue, m.spend) },
   { key: "cpa", inputs: ["result_spend", "conversions"], label: "Cost per conversion", kind: "currency", higherIsBetter: false, compute: (m) => div(m.result_spend ?? m.spend, m.conversions) },
   { key: "cpl", inputs: ["result_spend", "leads"], label: "Cost per lead", kind: "currency", higherIsBetter: false, compute: (m) => div(m.result_spend ?? m.spend, m.leads) },
+  { key: "frequency", inputs: ["impressions", "reach"], label: "Frequency", kind: "average", higherIsBetter: null, compute: (m) => div(m.impressions, m.reach) },
   { key: "ctr", inputs: ["clicks", "impressions"], label: "Click-through rate", kind: "percent", higherIsBetter: true, compute: (m) => div(m.clicks, m.impressions) },
   { key: "cpc", inputs: ["spend", "clicks"], label: "Cost per click", kind: "currency", higherIsBetter: false, compute: (m) => div(m.spend, m.clicks) },
   { key: "cpm", inputs: ["spend", "impressions"], label: "Cost per 1,000 impressions", kind: "currency", higherIsBetter: false, compute: (m) => { const v = div(m.spend, m.impressions); return v == null ? null : v * 1000; } },
@@ -162,6 +163,8 @@ export function formatMetric(
       return formatPercent(value, 2);
     case "multiple":
       return `${value.toFixed(2)}×`;
+    case "average":
+      return value.toFixed(2);
     default:
       return plain(value, currency, compact ? 1 : 0, 0, compact);
   }

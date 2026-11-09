@@ -4,11 +4,14 @@ import { useActionState, useState, useTransition } from "react";
 import type { Goal, Milestone, SalesSnapshot, SectionNotes } from "@/db/types";
 import { statusColor } from "@/lib/sales";
 import { parseSalesCsv } from "@/lib/sales-import";
+import { parseRoomSales, roomRates, type RoomSnapshot } from "@/lib/room-sales";
+import { MARKETING_CHANNELS } from "@/lib/marketing-channels";
+import { ChannelIcon } from "@/components/ChannelIcon";
 import { monthOfPeriod, previousPeriod, weekOf, weekRange, type PeriodKind } from "@/lib/period";
 import { PeriodIconToggle } from "@/components/PeriodIconToggle";
 import { monthLabel } from "@/lib/metrics";
 import {
-  addClientUserAction, changeClientUserRole, deleteSalesAction, removeClientUserAction, resetClientPassword, saveGoalActualsAction, saveSalesUpload,
+  addClientUserAction, changeClientUserRole, deleteRoomSalesAction, deleteSalesAction, saveMarketingChannelsAction, saveRoomSalesUpload, saveSnapshotCommentAction, removeClientUserAction, resetClientPassword, saveGoalActualsAction, saveSalesUpload,
   saveReportSettingsAction, saveSectionNotesAction, setLogoAction, type FormState,
 } from "../actions";
 
@@ -71,7 +74,7 @@ export function RoleSelect({ clientId, userId, role }: { clientId: string; userI
 
 export function RemoveLoginButton({ clientId, userId, email }: { clientId: string; userId: string; email: string }) {
   return (
-    <form action={removeClientUserAction} onSubmit={(e) => { if (!confirm(`Remove ${email}? They’ll be signed out and won’t be able to sign in again.`)) e.preventDefault(); }}>
+    <form action={removeClientUserAction} onSubmit={(e) => { if (!confirm(`Remove ${email} from this client? They lose access to this client and are signed out. If they have no other clients, their login is deleted.`)) e.preventDefault(); }}>
       <input type="hidden" name="clientId" value={clientId} />
       <input type="hidden" name="userId" value={userId} />
       <button className="text-sm font-medium text-neg hover:underline">Remove</button>
@@ -291,11 +294,12 @@ export function LogoForm({ clientId, logo }: { clientId: string; logo: string | 
 
 /* ================= sales figures (uploaded, monthly or weekly) ================= */
 
-export function SalesUpload({ clientId, dashboardId, sales }: { clientId: string; dashboardId: string; sales: Record<string, SalesSnapshot> }) {
+export function SalesUpload({ clientId, dashboardId, sales, keptFiles = [] }: { clientId: string; dashboardId: string; sales: Record<string, SalesSnapshot>; keptFiles?: string[] }) {
   const [period, setPeriod] = useState<PeriodKind>("month");
   const [id, setId] = useState(previousPeriod("month"));
   const [file, setFile] = useState<{ name: string; text: string } | null>(null);
   const [msg, setMsg] = useState<FormState>({});
+  const [comment, setComment] = useState("");
   const [pending, start] = useTransition();
   const parsed = file ? parseSalesCsv(file.text) : null;
   const saved = Object.keys(sales).sort().reverse();
@@ -312,9 +316,9 @@ export function SalesUpload({ clientId, dashboardId, sales }: { clientId: string
   function save() {
     if (!file) return;
     start(async () => {
-      const r = await saveSalesUpload({ clientId, dashboardId, period: id, csv: file.text, filename: file.name });
+      const r = await saveSalesUpload({ clientId, dashboardId, period: id, csv: file.text, filename: file.name, comment });
       setMsg(r);
-      if (r.ok) setFile(null);
+      if (r.ok) { setFile(null); setComment(""); }
     });
   }
   const totals = parsed?.rows.reduce((t, r) => ({ units: t.units + r.units, value: t.value + (r.value ?? 0), size: t.size + (r.size ?? 0) }), { units: 0, value: 0, size: 0 });
@@ -390,6 +394,9 @@ export function SalesUpload({ clientId, dashboardId, sales }: { clientId: string
             </div>
           )}
           {overwrite && parsed.rows.length > 0 && <p className="text-sm text-ink-2">{monthLabel(id)} already has sales figures; saving replaces them.</p>}
+          <label className="field"><span>Comments (optional, shown with these figures in the report)</span>
+            <textarea className="input min-h-20 text-sm" value={comment} onChange={(e) => setComment(e.target.value)} maxLength={3000}
+              placeholder={overwrite && sales[id]?.comment ? `Leave empty to keep the current comment: “${sales[id]!.comment!.slice(0, 60)}…”` : "For example: two units moved from reserved to sold after the show day."} /></label>
           <div className="flex gap-3">
             <button className="btn" disabled={pending || parsed.errors.length > 0 || !parsed.rows.length} onClick={save}>
               {pending ? "Saving…" : `Save sales figures for ${monthLabel(id)}`}
@@ -411,12 +418,17 @@ export function SalesUpload({ clientId, dashboardId, sales }: { clientId: string
                     <strong>{monthLabel(m)}</strong>{" "}
                     <span className="text-ink-3">{u} units, {sales[m].rows.map((r) => `${r.status} ${r.units}`).join(", ")}{sales[m].filename ? ` (${sales[m].filename})` : ""}</span>
                   </span>
+                  <span className="flex items-center gap-4">
+                  <CommentEditor clientId={clientId} dashboardId={dashboardId} field="sales" itemKey={m} comment={sales[m].comment ?? null} />
+                  <DownloadLink clientId={clientId} dashboardId={dashboardId} kept={keptFiles.includes(`sales:${m}`)} file={`sales:${m}`} fallback={`sales=${m}`} />
                   <form action={deleteSalesAction} onSubmit={(e) => { if (!confirm(`Delete the sales figures for ${monthLabel(m)}?`)) e.preventDefault(); }}>
                     <input type="hidden" name="clientId" value={clientId} />
                     <input type="hidden" name="dashboardId" value={dashboardId} />
                     <input type="hidden" name="month" value={m} />
                     <button className="text-neg hover:underline">Delete</button>
                   </form>
+                  </span>
+                  {sales[m].comment && <p className="basis-full whitespace-pre-line text-ink-2">“{sales[m].comment}”</p>}
                 </li>
               );
             })}
@@ -424,5 +436,194 @@ export function SalesUpload({ clientId, dashboardId, sales }: { clientId: string
         </div>
       )}
     </div>
+  );
+}
+
+/* ================= Spectrum Collection: room sales upload ================= */
+
+export function RoomSalesUpload({ clientId, dashboardId, saved, keptFiles = [] }: { clientId: string; dashboardId: string; saved: Record<string, RoomSnapshot>; keptFiles?: string[] }) {
+  const [file, setFile] = useState<{ name: string; text: string } | null>(null);
+  const [msg, setMsg] = useState<FormState>({});
+  const [comment, setComment] = useState("");
+  const [pending, start] = useTransition();
+  const parsed = file ? parseRoomSales(file.text) : null;
+  const dates = Object.keys(saved).sort().reverse();
+  const r0 = (n: number) => new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 }).format(n).replace(/,/g, "\u00a0");
+  const pct = (n: number) => `${(n * 100).toFixed(1)}%`;
+
+  async function pick(f: File | undefined) {
+    setMsg({});
+    if (f) setFile({ name: f.name, text: await f.text() });
+  }
+  function save() {
+    if (!file) return;
+    start(async () => {
+      const r = await saveRoomSalesUpload({ clientId, dashboardId, csv: file.text, filename: file.name, comment });
+      setMsg(r);
+      if (r.ok) { setFile(null); setComment(""); }
+    });
+  }
+  const snap = parsed?.snapshot;
+  const forecast = snap?.months.filter((m) => !m.fromDays) ?? [];
+
+  return (
+    <div className="grid gap-6">
+      <label className="field max-w-xl"><span>Room sales report (CSV)</span>
+        <input key={file ? "has" : "none"} type="file" accept=".csv,text/csv" className="input" onChange={(e) => pick(e.target.files?.[0])} /></label>
+      <p className="-mt-3 text-sm text-ink-3">
+        Upload the hotel’s daily dashboard export: a reporting date, the monthly forecast (rooms available, OTB rooms, revenue)
+        and the daily on-the-books detail. The reporting date is read from the file, and each upload is kept, so pickup between reports can be shown.
+      </p>
+      {msg.ok && <p role="status" className="rounded-lg bg-accent-soft px-3 py-2 text-sm text-accent">{msg.ok}</p>}
+      {msg.error && <p role="alert" className="rounded-lg bg-neg-soft px-3 py-2 text-sm text-neg">{msg.error}</p>}
+
+      {file && parsed && (
+        <div className="grid gap-3 rounded-xl border border-line bg-page/60 p-4">
+          <p className="font-medium">Check before saving: {file.name}</p>
+          {parsed.errors.length > 0 && <ul role="alert" className="list-disc rounded-lg bg-neg-soft px-4 py-3 pl-8 text-sm text-neg">{parsed.errors.map((e) => <li key={e}>{e}</li>)}</ul>}
+          {parsed.warnings.length > 0 && <ul className="list-disc rounded-lg bg-amber-50 px-4 py-3 pl-8 text-sm text-amber-900">{parsed.warnings.map((w) => <li key={w}>{w}</li>)}</ul>}
+          {snap && (
+            <>
+              <p className="text-sm text-ink-2">{snap.title ? `${snap.title}. ` : ""}As at <strong>{snap.reportDate}</strong>{snap.horizon ? `, forecast ${snap.horizon}` : ""}. {parsed.info.join(" ")}</p>
+              {saved[snap.reportDate] && <p className="text-sm text-ink-2">A report for {snap.reportDate} is already saved; saving replaces it.</p>}
+              <label className="field"><span>Comments (optional, shown with this report)</span>
+                <textarea className="input min-h-20 text-sm" value={comment} onChange={(e) => setComment(e.target.value)} maxLength={3000}
+                  placeholder={saved[snap.reportDate]?.comment ? `Leave empty to keep the current comment: “${saved[snap.reportDate]!.comment!.slice(0, 60)}…”` : "For example: strong pickup for the November conference; December still needs demand."} /></label>
+              <div className="overflow-x-auto rounded-lg border border-line bg-surface">
+                <table className="w-full min-w-[620px] text-sm">
+                  <thead>
+                    <tr className="border-b border-line text-left text-ink-2">
+                      <th className="px-3 py-2 font-medium">Month</th>
+                      <th className="px-3 py-2 text-right font-medium">Rooms available</th>
+                      <th className="px-3 py-2 text-right font-medium">On the books</th>
+                      <th className="px-3 py-2 text-right font-medium">Occupancy</th>
+                      <th className="px-3 py-2 text-right font-medium">Revenue (R)</th>
+                      <th className="px-3 py-2 text-right font-medium">ADR (R)</th>
+                      {forecast.some((m) => m.budget != null) && <th className="px-3 py-2 text-right font-medium">Budget (R)</th>}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {forecast.map((m) => {
+                      const x = roomRates(m);
+                      return (
+                        <tr key={m.month} className="border-b border-line-soft last:border-0">
+                          <td className="px-3 py-2">{monthLabel(m.month)}</td>
+                          <td className="px-3 py-2 text-right">{r0(m.available)}</td>
+                          <td className="px-3 py-2 text-right">{r0(m.otb)}</td>
+                          <td className="px-3 py-2 text-right">{pct(x.occ)}</td>
+                          <td className="px-3 py-2 text-right">{r0(m.revenue)}</td>
+                          <td className="px-3 py-2 text-right">{r0(x.adr)}</td>
+                          {forecast.some((f) => f.budget != null) && <td className="px-3 py-2 text-right">{m.budget != null ? r0(m.budget) : "–"}</td>}
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </>
+          )}
+          <div className="flex gap-3">
+            <button className="btn" disabled={pending || !snap} onClick={save}>{pending ? "Saving…" : snap ? `Save room sales as at ${snap.reportDate}` : "Save"}</button>
+            <button className="btn btn-quiet" onClick={() => setFile(null)} disabled={pending}>Cancel</button>
+          </div>
+        </div>
+      )}
+
+      {dates.length > 0 && (
+        <div>
+          <p className="mb-2 text-sm font-medium">Saved room sales reports</p>
+          <ul className="divide-y divide-line-soft rounded-xl border border-line">
+            {dates.map((d) => {
+              const s = saved[d];
+              const fc = s.months.filter((m) => !m.fromDays);
+              return (
+                <li key={d} className="flex flex-wrap items-center justify-between gap-3 px-4 py-2.5 text-sm">
+                  <span className="min-w-0"><strong>As at {d}</strong>{" "}
+                    <span className="text-ink-3">{fc.map((m) => `${monthLabel(m.month, "short")} ${m.otb} rooms`).join(", ")}{s.filename ? ` (${s.filename})` : ""}</span></span>
+                  <span className="flex items-center gap-4">
+                  <CommentEditor clientId={clientId} dashboardId={dashboardId} field="roomSales" itemKey={d} comment={s.comment ?? null} />
+                  <DownloadLink clientId={clientId} dashboardId={dashboardId} kept={keptFiles.includes(`rooms:${d}`)} file={`rooms:${d}`} fallback={`rooms=${d}`} />
+                  <form action={deleteRoomSalesAction} onSubmit={(e) => { if (!confirm(`Delete the room sales report as at ${d}?`)) e.preventDefault(); }}>
+                    <input type="hidden" name="clientId" value={clientId} />
+                    <input type="hidden" name="dashboardId" value={dashboardId} />
+                    <input type="hidden" name="reportDate" value={d} />
+                    <button className="text-neg hover:underline">Delete</button>
+                  </form>
+                  </span>
+                  {s.comment && <p className="basis-full whitespace-pre-line text-ink-2">“{s.comment}”</p>}
+                </li>
+              );
+            })}
+          </ul>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ================= marketing channels in use (super admins only) ================= */
+
+export function MarketingChannelsForm({ clientId, dashboardId, selected }: { clientId: string; dashboardId: string; selected: string[] }) {
+  const [s, action, pending] = useActionState<FormState, FormData>(saveMarketingChannelsAction, {});
+  return (
+    <form action={action} className="grid gap-4">
+      <input type="hidden" name="clientId" value={clientId} />
+      <input type="hidden" name="dashboardId" value={dashboardId} />
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        {MARKETING_CHANNELS.map((c) => (
+          <label key={c.id} className="flex cursor-pointer items-start gap-3 rounded-xl border border-line bg-surface p-3 has-[:checked]:border-night has-[:checked]:ring-1 has-[:checked]:ring-night">
+            <input type="checkbox" name="channel" value={c.id} defaultChecked={selected.includes(c.id)} className="mt-1 size-4 accent-[var(--color-night)]" />
+            <span className="min-w-0">
+              <span className="flex items-center gap-1.5 font-semibold"><span className="text-brand-strong"><ChannelIcon name={c.icon} /></span>{c.label}</span>
+              <span className="block text-sm text-ink-3">{c.detail}</span>
+            </span>
+          </label>
+        ))}
+      </div>
+      <div className="flex items-center gap-3">
+        <button className="btn" disabled={pending}>{pending ? "Saving…" : "Save channels"}</button>
+        {say(s)}
+      </div>
+    </form>
+  );
+}
+
+/* ================= comments on saved sales / room sales uploads ================= */
+
+export function CommentEditor({ clientId, dashboardId, field, itemKey, comment }: {
+  clientId: string; dashboardId: string; field: "sales" | "roomSales"; itemKey: string; comment: string | null;
+}) {
+  const [open, setOpen] = useState(false);
+  const [s, action, pending] = useActionState<FormState, FormData>(saveSnapshotCommentAction, {});
+  if (!open) {
+    return <button type="button" className="font-medium text-brand-strong hover:underline" onClick={() => setOpen(true)}>{comment ? "Edit comment" : "Add comment"}</button>;
+  }
+  return (
+    <form action={action} className="fixed inset-0 z-50 grid place-items-center bg-night/40 p-4" onClick={(e) => { if (e.target === e.currentTarget) setOpen(false); }}>
+      <div className="grid w-full max-w-lg gap-3 rounded-2xl bg-surface p-5 shadow-xl">
+        <input type="hidden" name="clientId" value={clientId} />
+        <input type="hidden" name="dashboardId" value={dashboardId} />
+        <input type="hidden" name="field" value={field} />
+        <input type="hidden" name="key" value={itemKey} />
+        <label className="field"><span>Comments for {field === "roomSales" ? `the report as at ${itemKey}` : monthLabel(itemKey)}</span>
+          <textarea name="comment" className="input min-h-32 text-sm" defaultValue={comment ?? ""} maxLength={3000} autoFocus /></label>
+        <p className="-mt-1 text-xs text-ink-3">Shown with these figures in the client’s report. Leave empty to remove.</p>
+        <div className="flex items-center gap-3">
+          <button className="btn" disabled={pending}>{pending ? "Saving…" : "Save comment"}</button>
+          <button type="button" className="btn btn-quiet" onClick={() => setOpen(false)}>Close</button>
+          {say(s)}
+        </div>
+      </div>
+    </form>
+  );
+}
+
+/** The uploaded file when it was kept; otherwise the stored figures as CSV. */
+function DownloadLink({ clientId, dashboardId, kept, file, fallback }: { clientId: string; dashboardId: string; kept: boolean; file: string; fallback: string }) {
+  const base = `/admin/clients/${clientId}/download?dash=${encodeURIComponent(dashboardId)}`;
+  return (
+    <a href={kept ? `${base}&file=${encodeURIComponent(file)}` : `${base}&${fallback}`} download
+      title={kept ? "The file as it was uploaded" : "Uploaded before files were kept: downloads the saved figures as CSV"}
+      className="font-medium text-ink underline underline-offset-2">{kept ? "Download" : "Download CSV"}</a>
   );
 }

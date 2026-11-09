@@ -1,15 +1,16 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { requireClientAccess } from "@/lib/auth";
-import { getClient, getDashboardData, getDashboards, listClientUsers, listImports } from "@/lib/data";
+import { categoryLabel, clientCategory } from "@/lib/category";
+import { getClient, getDashboardData, getDashboards, listClientUsers, listImports, listStoredFiles } from "@/lib/data";
 import { monthLabel, formatMetric } from "@/lib/metrics";
 import { UploadPanel } from "../../_components/UploadPanel";
 import {
   EditClientForm, DeleteClientButton, MonthNoteForm, DeleteMonthButton,
-  AddDashboardForm, RenameDashboardForm, DeleteDashboardButton,
+  AddDashboardForm, RenameDashboardForm, DeleteDashboardButton, PeriodChannels,
 } from "../../_components/ClientForms";
 import {
-  AddLoginForm, LogoForm, MonthContentEditor, RemoveLoginButton, ReportSettingsForm, ResetLoginPassword, RoleSelect, SalesUpload,
+  AddLoginForm, LogoForm, MonthContentEditor, RemoveLoginButton, ReportSettingsForm, ResetLoginPassword, RoleSelect, RoomSalesUpload, SalesUpload, MarketingChannelsForm,
 } from "../../_components/ReportAdminForms";
 
 export const dynamic = "force-dynamic";
@@ -27,13 +28,14 @@ export default async function ClientAdminPage({ params, searchParams }: {
   const dashboards = await getDashboards(id);
   const dash = dashboards.find((x) => x.id === d) ?? dashboards[0];
   if (!dash) notFound();
-  const [users, data, imports] = await Promise.all([listClientUsers(id), getDashboardData(id, dash.id), listImports(id, dash.id)]);
+  const [users, data, imports, kept] = await Promise.all([listClientUsers(id), getDashboardData(id, dash.id), listImports(id, dash.id), listStoredFiles(id, dash.id)]);
   const login = users[0];
   const manualGoals = (data?.settings.goals ?? []).filter((g) => !g.metric);
   if (!data) notFound();
   const months = [...data.months].reverse();
   const weeks = [...data.weeks].reverse();
   const multi = dashboards.length > 1;
+  const category = clientCategory(client);
 
   return (
     <div className="grid grid-cols-1 gap-10">
@@ -42,7 +44,7 @@ export default async function ClientAdminPage({ params, searchParams }: {
           : <Link href="/dashboard" className="text-sm text-ink-2 hover:underline">‹ Back to the report</Link>}
         <div className="mt-2 flex flex-wrap items-end justify-between gap-4">
           <div>
-            <h1 className="text-3xl font-semibold tracking-tight">{client.name}</h1>
+            <h1 className="text-3xl font-semibold tracking-tight">{client.name}<span className="ml-3 rounded-full bg-line-soft px-2.5 py-1 align-middle text-xs font-semibold text-ink-2">{categoryLabel(category)}</span></h1>
             <p className="mt-1 text-ink-2">
               {isSuper ? `${users.length} login${users.length === 1 ? "" : "s"}, ` : "Managing data as a client admin. "}{dashboards.length} dashboard{multi ? "s" : ""}
             </p>
@@ -88,13 +90,14 @@ export default async function ClientAdminPage({ params, searchParams }: {
               <li key={m.month} className="grid gap-3 py-4 first:pt-0 last:pb-0 md:grid-cols-[220px_1fr]">
                 <div>
                   <p className="font-semibold">{monthLabel(m.month)}</p>
-                  <p className="text-sm text-ink-2">
-                    {m.channels.map((c) => c.channel).join(", ")}
-                  </p>
+                  <PeriodChannels clientId={id} dashboardId={dash.id} month={m.month} label={monthLabel(m.month)} channels={m.channels.map((c) => c.channel)} />
                   {m.totals.spend != null && (
                     <p className="text-sm text-ink-3">{formatMetric("spend", m.totals.spend, client.currency)} spend</p>
                   )}
-                  <div className="mt-1"><DeleteMonthButton clientId={id} dashboardId={dash.id} month={m.month} label={monthLabel(m.month)} /></div>
+                  <div className="mt-1 flex flex-wrap items-center gap-4">
+                    <a href={`/admin/clients/${id}/download?dash=${encodeURIComponent(dash.id)}&period=${m.month}`} download className="text-sm font-medium text-ink underline underline-offset-2">Download CSV</a>
+                    <DeleteMonthButton clientId={id} dashboardId={dash.id} month={m.month} label={monthLabel(m.month)} />
+                  </div>
                 </div>
                 <div className="grid gap-3">
                   <MonthNoteForm clientId={id} dashboardId={dash.id} month={m.month} body={m.note} />
@@ -117,13 +120,14 @@ export default async function ClientAdminPage({ params, searchParams }: {
               <li key={m.month} className="grid gap-3 py-4 first:pt-0 last:pb-0 md:grid-cols-[220px_1fr]">
                 <div>
                   <p className="font-semibold">{monthLabel(m.month)}</p>
-                  <p className="text-sm text-ink-2">
-                    {m.channels.map((c) => c.channel).join(", ")}
-                  </p>
+                  <PeriodChannels clientId={id} dashboardId={dash.id} month={m.month} label={monthLabel(m.month)} channels={m.channels.map((c) => c.channel)} />
                   {m.totals.spend != null && (
                     <p className="text-sm text-ink-3">{formatMetric("spend", m.totals.spend, client.currency)} spend</p>
                   )}
-                  <div className="mt-1"><DeleteMonthButton clientId={id} dashboardId={dash.id} month={m.month} label={monthLabel(m.month)} /></div>
+                  <div className="mt-1 flex flex-wrap items-center gap-4">
+                    <a href={`/admin/clients/${id}/download?dash=${encodeURIComponent(dash.id)}&period=${m.month}`} download className="text-sm font-medium text-ink underline underline-offset-2">Download CSV</a>
+                    <DeleteMonthButton clientId={id} dashboardId={dash.id} month={m.month} label={monthLabel(m.month)} />
+                  </div>
                 </div>
                 <div className="grid gap-3">
                   <MonthNoteForm clientId={id} dashboardId={dash.id} month={m.month} body={m.note} />
@@ -138,10 +142,24 @@ export default async function ClientAdminPage({ params, searchParams }: {
       </Section>
       )}
 
-      <Section title={multi ? `Sales figures for ${dash.name}` : "Sales figures"}
-        lead="Upload units, value and size by status, monthly or weekly. Shown in the report’s Sales section.">
-        <SalesUpload key={dash.id} clientId={id} dashboardId={dash.id} sales={data.settings.sales ?? {}} />
-      </Section>
+      {isSuper && (
+        <Section title={multi ? `Marketing channels for ${dash.name}` : "Marketing channels"}
+          lead="Tick the channels used for this client. They’re shown as a banner at the top of the report’s overview. Only super admins can change this.">
+          <MarketingChannelsForm key={dash.id} clientId={id} dashboardId={dash.id} selected={data.settings.marketingChannels ?? []} />
+        </Section>
+      )}
+
+      {category === "collection" ? (
+        <Section title={multi ? `Room sales for ${dash.name}` : "Room sales"}
+          lead="Upload the hotel’s room sales report (rooms on the books, revenue, ADR, RevPAR). Shown in the report’s Room sales section.">
+          <RoomSalesUpload key={dash.id} clientId={id} dashboardId={dash.id} saved={data.settings.roomSales ?? {}} keptFiles={kept.filter((k) => k.startsWith("rooms:"))} />
+        </Section>
+      ) : (
+        <Section title={multi ? `Sales figures for ${dash.name}` : "Sales figures"}
+          lead="Upload units, value and size by status, monthly or weekly. Shown in the report’s Sales section.">
+          <SalesUpload key={dash.id} clientId={id} dashboardId={dash.id} sales={data.settings.sales ?? {}} keptFiles={kept.filter((k) => k.startsWith("sales:"))} />
+        </Section>
+      )}
 
       <Section title={multi ? `Report settings for ${dash.name}` : "Report settings"}
         lead="Goals, roadmap, market benchmark and ROI planner values for this report.">
@@ -153,7 +171,7 @@ export default async function ClientAdminPage({ params, searchParams }: {
       </Section>
 
       {isSuper && (
-        <Section title="Logins" lead="Viewers see this client’s reports. Admins can also upload data and edit this client’s notes and report settings, but never see other clients.">
+        <Section title="Logins" lead="Viewers see this client’s reports. Admins can also upload data and edit this client’s notes and report settings. Adding an email that already has a login gives it access to this client too; each client has its own permission, and Remove only takes away this client.">
           {users.length > 0 && (
             <div className="mb-5 overflow-x-auto">
               <table className="w-full text-sm">
@@ -168,7 +186,10 @@ export default async function ClientAdminPage({ params, searchParams }: {
                 <tbody>
                   {users.map((u) => (
                     <tr key={u.id} className="border-b border-line-soft align-top last:border-0">
-                      <td className="break-all py-3 pr-4 font-medium">{u.email}</td>
+                      <td className="break-all py-3 pr-4 font-medium">
+                        {u.email}
+                        {u.otherClients > 0 && <span className="block text-xs font-normal text-ink-3">Also sees {u.otherClients} other client{u.otherClients === 1 ? "" : "s"}. A new password applies to all of them.</span>}
+                      </td>
                       <td className="py-3 pr-4"><RoleSelect clientId={id} userId={u.id} role={u.role} /></td>
                       <td className="hidden py-3 pr-4 text-ink-2 sm:table-cell">
                         {u.lastLoginAt ? new Date(u.lastLoginAt).toLocaleDateString("en-ZA", { day: "numeric", month: "short", year: "numeric" }) : "Never"}
@@ -192,7 +213,7 @@ export default async function ClientAdminPage({ params, searchParams }: {
       <div className="grid grid-cols-1 gap-10 lg:grid-cols-2">
         {isSuper && (
           <Section title="Client details">
-            <EditClientForm c={{ ...client, email: login?.email }} />
+            <EditClientForm c={{ ...client, category, email: login?.email }} />
           </Section>
         )}
         <Section title={multi ? `Upload history for ${dash.name}` : "Upload history"}>
@@ -203,7 +224,12 @@ export default async function ClientAdminPage({ params, searchParams }: {
                   <span className="min-w-0 flex-1 truncate" title={`${i.filename ?? i.source} (${i.channels.join(", ")}, ${i.months.map((m) => monthLabel(m, "short")).join(", ")})`}>
                     {i.filename ?? i.source} <span className="text-ink-3">({i.channels.join(", ")}, {i.months.map((m) => monthLabel(m, "short")).join(", ")})</span>
                   </span>
-                  <span className="shrink-0 text-ink-3">{new Date(i.importedAt).toLocaleDateString("en-ZA", { day: "numeric", month: "short", year: "numeric" })}</span>
+                  <span className="flex shrink-0 items-baseline gap-4">
+                    <span className="text-ink-3">{new Date(i.importedAt).toLocaleDateString("en-ZA", { day: "numeric", month: "short", year: "numeric" })}</span>
+                    {i.hasFile
+                      ? <a href={`/admin/clients/${id}/download?dash=${encodeURIComponent(dash.id)}&file=${i.id}`} download className="font-medium text-ink underline underline-offset-2">Download</a>
+                      : <span className="text-ink-3" title="Uploaded before files were kept. Use Download CSV on the month instead.">Not kept</span>}
+                  </span>
                 </li>
               ))}
             </ul>

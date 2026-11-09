@@ -129,3 +129,9 @@ html.printing .report-root { width: 1000px; margin-inline: auto; display: block;
   .report-root table { min-width: 0 !important; font-size: 11px; }
   .report-root table th, .report-root table td { padding-left: 4px !important; padding-right: 4px !important; }
 }
+
+/* Printing the whole report: each section starts on a new page. */
+@media print {
+  .print-section + .print-section { break-before: page; }
+}
+html.printing .print-section + .print-section { border-top: 1px dashed var(--color-line); }

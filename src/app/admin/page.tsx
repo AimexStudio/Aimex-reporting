@@ -3,6 +3,7 @@ import { requireAdmin } from "@/lib/auth";
 import { listClients } from "@/lib/data";
 import { monthLabel } from "@/lib/metrics";
 import { previousPeriod } from "@/lib/period";
+import { CATEGORIES } from "@/lib/category";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Clients" };
@@ -49,43 +50,62 @@ export default async function AdminHome() {
           <Link href="/admin/clients/new" className="btn mt-5">Add client</Link>
         </div>
       ) : (
-        <div className="overflow-x-auto rounded-2xl border border-line bg-surface">
-          <table className="w-full min-w-[720px] text-sm">
-            <thead>
-              <tr className="border-b border-line text-left text-ink-2">
-                <th className="px-5 py-3 font-medium">Client</th>
-                <th className="px-5 py-3 font-medium">Login</th>
-                <th className="px-5 py-3 font-medium">Latest month</th>
-                <th className="px-5 py-3 text-right font-medium">Months on file</th>
-                <th className="px-5 py-3 font-medium">Last signed in</th>
-              </tr>
-            </thead>
-            <tbody>
-              {clients.map((c) => {
-                const isBehind = !latestFor(c) || latestFor(c)! < dueFor(c);
-                return (
-                  <tr key={c.id} className="border-b border-line-soft last:border-0 hover:bg-page/60">
-                    <td className="px-5 py-3.5">
-                      <Link href={`/admin/clients/${c.id}`} className="font-semibold hover:underline">{c.name}</Link>
-                      {(c.contactName || c.dashboardCount > 1) && (
-                        <div className="text-ink-3">{[c.contactName, c.dashboardCount > 1 ? `${c.dashboardCount} dashboards` : null].filter(Boolean).join(", ")}</div>
-                      )}
-                    </td>
-                    <td className="px-5 py-3.5 text-ink-2">{c.email ?? "–"}</td>
-                    <td className="px-5 py-3.5">
-                      {latestFor(c) ? monthLabel(latestFor(c)!) : "No data yet"}
-                      {isBehind && <span className="ml-2 rounded-full bg-neg-soft px-2 py-0.5 text-xs font-medium text-neg">Needs {weeklyOnly(c) ? `week of ${monthLabel(dueFor(c), "short")}` : monthLabel(due, "short")}</span>}
-                      {c.weekCount > 0 && <span className="ml-2 rounded-full bg-line-soft px-2 py-0.5 text-xs font-medium text-ink-2">{c.monthCount ? "Monthly & weekly" : "Weekly"}</span>}
-                    </td>
-                    <td className="px-5 py-3.5 text-right">{c.monthCount}</td>
-                    <td className="px-5 py-3.5 text-ink-2">
-                      {c.lastLoginAt ? new Date(c.lastLoginAt).toLocaleDateString("en-ZA", { day: "numeric", month: "short", year: "numeric" }) : "Never"}
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
+        <div className="grid gap-10 [&>*]:min-w-0">
+          {CATEGORIES.map((cat) => {
+            const group = clients.filter((c) => c.category === cat.id);
+            return (
+              <section key={cat.id} aria-labelledby={`cat-${cat.id}`}>
+                <div className="mb-3 flex items-baseline justify-between gap-4">
+                  <h2 id={`cat-${cat.id}`} className="text-xl font-semibold tracking-tight">
+                    {cat.label} <span className="ml-1 text-base font-normal text-ink-3">{group.length}</span>
+                  </h2>
+                  <Link href={`/admin/clients/new?category=${cat.id}`} className="text-sm font-medium text-brand-strong hover:underline">+ Add to {cat.label}</Link>
+                </div>
+                {group.length === 0 ? (
+                  <p className="rounded-2xl border border-dashed border-line bg-surface p-6 text-ink-2">No clients in {cat.label} yet.</p>
+                ) : (
+                <div className="overflow-x-auto rounded-2xl border border-line bg-surface">
+                  <table className="w-full min-w-[720px] text-sm">
+                    <thead>
+                      <tr className="border-b border-line text-left text-ink-2">
+                        <th className="px-5 py-3 font-medium">Client</th>
+                        <th className="px-5 py-3 font-medium">Login</th>
+                        <th className="px-5 py-3 font-medium">Latest month</th>
+                        <th className="px-5 py-3 text-right font-medium">Months on file</th>
+                        <th className="px-5 py-3 font-medium">Last signed in</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {group.map((c) => {
+                        const isBehind = !latestFor(c) || latestFor(c)! < dueFor(c);
+                        return (
+                          <tr key={c.id} className="border-b border-line-soft last:border-0 hover:bg-page/60">
+                            <td className="px-5 py-3.5">
+                              <Link href={`/admin/clients/${c.id}`} className="font-semibold hover:underline">{c.name}</Link>
+                              {(c.contactName || c.dashboardCount > 1) && (
+                                <div className="text-ink-3">{[c.contactName, c.dashboardCount > 1 ? `${c.dashboardCount} dashboards` : null].filter(Boolean).join(", ")}</div>
+                              )}
+                            </td>
+                            <td className="px-5 py-3.5 text-ink-2">{c.email ?? "–"}</td>
+                            <td className="px-5 py-3.5">
+                              {latestFor(c) ? monthLabel(latestFor(c)!) : "No data yet"}
+                              {isBehind && <span className="ml-2 rounded-full bg-neg-soft px-2 py-0.5 text-xs font-medium text-neg">Needs {weeklyOnly(c) ? `week of ${monthLabel(dueFor(c), "short")}` : monthLabel(due, "short")}</span>}
+                              {c.weekCount > 0 && <span className="ml-2 rounded-full bg-line-soft px-2 py-0.5 text-xs font-medium text-ink-2">{c.monthCount ? "Monthly & weekly" : "Weekly"}</span>}
+                            </td>
+                            <td className="px-5 py-3.5 text-right">{c.monthCount}</td>
+                            <td className="px-5 py-3.5 text-ink-2">
+                              {c.lastLoginAt ? new Date(c.lastLoginAt).toLocaleDateString("en-ZA", { day: "numeric", month: "short", year: "numeric" }) : "Never"}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+                )}
+              </section>
+            );
+          })}
         </div>
       )}
     </div>

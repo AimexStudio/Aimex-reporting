@@ -2,6 +2,7 @@ import "server-only";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import bcrypt from "bcryptjs";
+import { membershipsOf } from "./memberships";
 import type { User } from "@/db";
 import { getUser } from "./data";
 import { SESSION_COOKIE, SESSION_MAX_AGE, signSession, verifySession } from "./session-token";
@@ -36,41 +37,65 @@ export async function getCurrentUser(): Promise<User | null> {
   return user;
 }
 
+/** The client this login most recently chose to view (a cookie), if they may still see it. */
+export const ACTIVE_CLIENT_COOKIE = "aimex_client";
+
+async function activeClientOf(user: User): Promise<string | null> {
+  const m = membershipsOf(user);
+  const ids = Object.keys(m);
+  if (!ids.length) return null;
+  const chosen = (await cookies()).get(ACTIVE_CLIENT_COOKIE)?.value;
+  return chosen && m[chosen] ? chosen : ids[0];
+}
+
+/** The first client this login may manage (admin permission), if any. */
+function firstAdminClient(user: User): string | null {
+  const m = membershipsOf(user);
+  return Object.keys(m).find((id) => m[id] === "client_admin") ?? null;
+}
+
 /** Aimex super admin only: all clients, logins, the Team page. */
 export async function requireAdmin(): Promise<User> {
   const user = await getCurrentUser();
   if (!user) redirect("/login");
-  if (user.role === "client_admin" && user.clientId) redirect(`/admin/clients/${user.clientId}`);
-  if (user.role !== "admin") redirect("/dashboard");
+  if (user.role !== "admin") {
+    const own = firstAdminClient(user);
+    redirect(own ? `/admin/clients/${own}` : "/dashboard");
+  }
   return user;
 }
 
-/** Anyone who may use the admin area at all: super admins and client admins. */
+/** Anyone who may use the admin area at all: super admins and logins that are admin for at least one client. */
 export async function requireStaff(): Promise<User> {
   const user = await getCurrentUser();
   if (!user) redirect("/login");
-  if (user.role === "admin" || (user.role === "client_admin" && user.clientId)) return user;
+  if (user.role === "admin" || firstAdminClient(user)) return user;
   redirect("/dashboard");
 }
 
 /**
  * May this person manage this client's data (uploads, notes, report settings)?
- * Super admins: any client. Client admins: only the client they belong to.
+ * Super admins: any client. Others: only clients where they have admin permission.
  */
 export async function requireClientAccess(clientId: string): Promise<User> {
   const user = await requireStaff();
   if (user.role === "admin") return user;
-  if (user.clientId !== clientId) redirect(`/admin/clients/${user.clientId}`);
+  if (membershipsOf(user)[clientId] !== "client_admin") redirect(`/admin/clients/${firstAdminClient(user)}`);
   return user;
 }
 
 export const isSuperAdmin = (u: User | null) => u?.role === "admin";
 
-/** Returns the signed-in viewer or client admin and the ONLY clientId they may ever see. */
-export async function requireClient(): Promise<{ user: User; clientId: string }> {
+/**
+ * The signed-in viewer or client admin, the ONE client they're looking at now (always one they belong to),
+ * their permission for it, and every client they can switch to.
+ */
+export async function requireClient(): Promise<{ user: User; clientId: string; canManage: boolean; clientIds: string[] }> {
   const user = await getCurrentUser();
   if (!user) redirect("/login");
   if (user.role === "admin") redirect("/admin");
-  if (!user.clientId) redirect("/login");
-  return { user, clientId: user.clientId };
+  const clientId = await activeClientOf(user);
+  if (!clientId) redirect("/login");
+  const m = membershipsOf(user);
+  return { user, clientId, canManage: m[clientId] === "client_admin", clientIds: Object.keys(m) };
 }

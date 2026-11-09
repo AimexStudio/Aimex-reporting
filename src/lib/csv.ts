@@ -45,7 +45,8 @@ const CHANNEL_COLS = new Set(["channel", "platform", "source", "network", "publi
 /** Columns that are averages/ratios or dates: adding them up across rows would be wrong. */
 const NOT_ADDITIVE = /^(frequency|starts|ends|reporting_ends|reporting_end|results_initial|avg_|average_|cost_per_|cost_conv|cost_all_conv|conv_value_cost|cpm|cpc|cpa|cpl|ctr|roas|budget|optimi[sz]ation_score|quality_score|.*_rate$|.*_per_.*|.*_ratio$|.*_share$|.*_percent(age)?$|bounce_rate|engagement_rate)/;
 /** Unique-people counts: the same person can appear in several rows, so sums overstate them. */
-const UNIQUE_COUNTS = new Set(["reach", "users"]);
+// Kept only when each channel has a single row in the month: they can't be added up across rows.
+const UNIQUE_COUNTS = new Set(["reach", "users", "avg_engagement_time"]);
 const DIM = {
   ads: ["ad_name", "ad"],
   adSets: ["ad_set_name", "adset_name", "ad_group", "ad_group_name"],
@@ -321,7 +322,10 @@ export function parseMetricsCsv(text: string, formMonth?: string, defaultChannel
   const monthCol = MONTH_COLS.find((c) => hset.has(c));
   const channelCol = headers.find((h) => CHANNEL_COLS.has(h));
   const resultTypeCol = hset.has("result_type") && hset.has("results") ? "result_type" : undefined;
-  const fallbackChannel = defaultChannel?.trim() || detectedSource || "All channels";
+  // A file must say which channel it's for (a channel column, a recognised export, or the Channel field):
+  // figures are never filed under a made-up "All channels".
+  const fallbackChannel = defaultChannel?.trim() || detectedSource || "";
+  const blankChannelRows: number[] = [];
 
   if (!monthCol && !defaultMonth) {
     errors.push("The file has no month or date column. Add one, or pick the month in the upload form.");
@@ -340,7 +344,8 @@ export function parseMetricsCsv(text: string, formMonth?: string, defaultChannel
       if (new Set(values).size > 1) detailCols.push(label(h));
       continue;
     }
-    if (DERIVED_ALIASES.has(h) || NOT_ADDITIVE.test(h)) {
+    // "avg_engagement_time" is the portal's own column name (from its exports): one value per channel, kept as it is.
+    if (h !== "avg_engagement_time" && (DERIVED_ALIASES.has(h) || NOT_ADDITIVE.test(h))) {
       ignoredRates.push(label(h));
       continue;
     }
@@ -371,6 +376,12 @@ export function parseMetricsCsv(text: string, formMonth?: string, defaultChannel
   const resultTypes = new Map<string, number>();
   let skippedTotals = 0;
   const outOfMonth = new Set<string>();
+  // Meta's own total row: every name column (campaign, ad set, ad) blank while the other rows are named.
+  // It isn't added to the totals (that would double them); its reach is the true count of unique people.
+  const nameCols = [dimCol.campaigns, dimCol.adSets, dimCol.ads].filter(Boolean) as string[];
+  const hasNamedRows = nameCols.length > 0 && data.some((r) => nameCols.some((c) => (r[c] ?? "").trim()));
+  const summaryReach = new Map<string, number>();
+  let summaryRows = 0;
 
   data.forEach((r, i) => {
     const line = i + 2;
@@ -396,6 +407,7 @@ export function parseMetricsCsv(text: string, formMonth?: string, defaultChannel
     }
 
     const channel = (channelCol ? r[channelCol]?.trim() : "") || fallbackChannel;
+    if (!channel) { blankChannelRows.push(line); return; }
     const firstCell = Object.values(r)[0]?.trim() ?? "";
     const anyCellTotal = Object.values(r).slice(0, 3).some((v) => /^\s*(total|totals|grand total)\b/i.test(v ?? ""));
     if (/^(total|totals|grand total|all|summary)$/i.test(channel) || /^(total|totals|grand total)\b/i.test(firstCell) || anyCellTotal) {
@@ -404,6 +416,12 @@ export function parseMetricsCsv(text: string, formMonth?: string, defaultChannel
     }
 
     const key = `${month}|${channel}`;
+    if (hasNamedRows && nameCols.every((c) => !(r[c] ?? "").trim())) {
+      summaryRows++;
+      const reach = parseNumber(r["reach"]);
+      if (reach != null) summaryReach.set(key, reach);
+      return;
+    }
     rowsPerKey.set(key, (rowsPerKey.get(key) ?? 0) + 1);
     const add = (metric: string, value: number) => {
       const k = `${key}|${metric}`;
@@ -445,16 +463,16 @@ export function parseMetricsCsv(text: string, formMonth?: string, defaultChannel
         seenText.set(k, texts);
         const note = (field: string, v: string | undefined) => { if (v) { const set = texts.get(field) ?? new Set(); set.add(v); texts.set(field, set); } };
         note("resultType", resultTypeCol ? r[resultTypeCol]?.trim() : undefined);
-        note("delivery", ["delivery_status", "delivery", "campaign_status", "ad_set_delivery", "status"].map((n) => (r[n] ?? "").trim()).find((v) => v && !isBlank(v)));
+        note("delivery", ["delivery_status", "delivery", "campaign_delivery", "ad_set_delivery", "ad_delivery", "campaign_status", "status"].map((n) => (r[n] ?? "").trim()).find((v) => v && !isBlank(v)));
         if (kind === "adSets" && dimCol.campaigns) note("parent", (r[dimCol.campaigns] ?? "").trim().replace(/\s+/g, " "));
         if (!rowAttrs.has(k)) {
           const pick = (names: string[]) => names.map((n) => (r[n] ?? "").trim()).find((v) => v && !isBlank(v));
           const reach = parseNumber(r["reach"]);
           rowAttrs.set(k, {
-            delivery: pick(["delivery_status", "delivery", "campaign_status", "ad_set_delivery", "status"]),
+            delivery: pick(["delivery_status", "delivery", "campaign_delivery", "ad_set_delivery", "ad_delivery", "campaign_status", "status"]),
             resultType: (resultTypeCol ? r[resultTypeCol]?.trim() : undefined) || undefined,
             budget: parseNumber(pick(["budget", "ad_set_budget", "daily_budget", "campaign_budget"]) ?? "") ?? undefined,
-            budgetType: pick(["budget_type", "ad_set_budget_type"]),
+            budgetType: pick(["budget_type", "ad_set_budget_type", "campaign_budget_type"]),
             optScore: parseNumber(pick(["optimisation_score", "optimization_score"]) ?? "") ?? undefined,
             reach: reach ?? undefined,
           });
@@ -476,9 +494,15 @@ export function parseMetricsCsv(text: string, formMonth?: string, defaultChannel
   const droppedUnique = new Set<string>();
   for (const [k, row] of agg) {
     if (UNIQUE_COUNTS.has(row.metric) && (rowsPerKey.get(`${row.month}|${row.channel}`) ?? 0) > 1) {
+      // Meta's total row counts each person once, so its reach can be used as the channel's reach.
+      const fromTotal = row.metric === "reach" ? summaryReach.get(`${row.month}|${row.channel}`) : undefined;
+      if (fromTotal != null) { agg.set(k, { ...row, value: fromTotal }); continue; }
       agg.delete(k);
       droppedUnique.add(row.metric);
     }
+  }
+  if (summaryRows) {
+    info.push(`Left out Meta’s total row (the row with no campaign name), so nothing is counted twice.${summaryReach.size ? " Its reach was used as the total reach, which counts each person once." : ""}`);
   }
 
   const sourceRows = [...rowsPerKey.values()].reduce((a, b) => a + b, 0);
@@ -491,7 +515,12 @@ export function parseMetricsCsv(text: string, formMonth?: string, defaultChannel
   for (const [type, n] of resultTypes) {
     info.push(`Meta “Results” of type “${type}” were imported as ${labelFor(resultMetric(type)!)} (${n}).`);
   }
-  if (!channelCol && sourceRows > 0) {
+  if (blankChannelRows.length) {
+    errors.push(channelCol
+      ? `${blankChannelRows.length === 1 ? `Row ${blankChannelRows[0]} has` : `${blankChannelRows.length} rows (from row ${blankChannelRows[0]}) have`} no channel. Fill in the channel column, or type the channel in the Channel box.`
+      : "This file doesn’t say which channel it’s for. Type the channel in the Channel box (for example “Meta Ads”).");
+  }
+  if (!channelCol && sourceRows > 0 && fallbackChannel) {
     info.push(
       detectedSource && !defaultChannel?.trim()
         ? `Looks like a ${detectedSource} export, so the figures are saved under ${detectedSource}.`

@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { requireStaff } from "@/lib/auth";
+import { membershipsOf } from "@/lib/memberships";
 import { Wordmark } from "@/components/Wordmark";
 import { signOut } from "@/app/actions";
 
@@ -17,12 +18,14 @@ export default async function AdminLayout({ children }: { children: React.ReactN
               <>
                 <Link href="/admin" className="hover:text-white">Clients</Link>
                 <Link href="/admin/clients/new" className="hover:text-white">Add client</Link>
+                <Link href="/admin/logins" className="hover:text-white">Logins</Link>
                 <Link href="/admin/team" className="hover:text-white">Team</Link>
+                <Link href="/admin/task-report" className="hover:text-white">Admin Report</Link>
               </>
             ) : (
               <>
                 <Link href="/dashboard" className="hover:text-white">Report</Link>
-                <Link href={`/admin/clients/${admin.clientId}`} className="hover:text-white">Manage data</Link>
+                <Link href={`/admin/clients/${Object.keys(membershipsOf(admin)).find((id) => membershipsOf(admin)[id] === "client_admin") ?? admin.clientId}`} className="hover:text-white">Manage data</Link>
               </>
             )}
           </nav>

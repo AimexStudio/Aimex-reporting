@@ -41,7 +41,9 @@ export function openFirestore(): Firestore {
       credential: credentialFromEnv(),
       projectId: process.env.FIREBASE_PROJECT_ID || undefined,
     });
-  const db = getFirestore(app);
+  // A named Firestore database (not "(default)") is chosen with FIRESTORE_DATABASE_ID.
+  const dbId = process.env.FIRESTORE_DATABASE_ID?.trim();
+  const db = dbId && dbId !== "(default)" ? getFirestore(app, dbId) : getFirestore(app);
   db.settings({ ignoreUndefinedProperties: true });
   g.__aimexFs = db;
   return db;

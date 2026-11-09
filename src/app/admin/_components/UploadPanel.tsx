@@ -20,6 +20,8 @@ interface Pending {
   id: string;
   name: string;
   text: string;
+  /** PDF reports: the original file, kept on the server so it can be downloaded later. */
+  pdfBase64?: string;
   channel: string;
   channelTouched: boolean;
   conversionsAs: "conversions" | "leads";
@@ -27,20 +29,21 @@ interface Pending {
 }
 
 /** Reads UTF-8, or the UTF-16 that Google Ads' "CSV (Excel)" export uses. PDFs are read on the server. */
-async function readText(f: File): Promise<string> {
+async function readText(f: File): Promise<{ text: string; pdfBase64?: string }> {
   const buf = new Uint8Array(await f.arrayBuffer());
   if (buf[0] === 0x25 && buf[1] === 0x50 && buf[2] === 0x44 && buf[3] === 0x46) {
     let bin = "";
     for (let i = 0; i < buf.length; i += 0x8000) bin += String.fromCharCode(...buf.subarray(i, i + 0x8000));
-    const r = await extractPdfText({ base64: btoa(bin) });
+    const pdfBase64 = btoa(bin);
+    const r = await extractPdfText({ base64: pdfBase64 });
     if (r.error) throw new Error(r.error);
-    return r.text!;
+    return { text: r.text!, pdfBase64 };
   }
-  if (buf[0] === 0xff && buf[1] === 0xfe) return new TextDecoder("utf-16le").decode(buf);
-  if (buf[0] === 0xfe && buf[1] === 0xff) return new TextDecoder("utf-16be").decode(buf);
+  if (buf[0] === 0xff && buf[1] === 0xfe) return { text: new TextDecoder("utf-16le").decode(buf) };
+  if (buf[0] === 0xfe && buf[1] === 0xff) return { text: new TextDecoder("utf-16be").decode(buf) };
   // UTF-16 without a byte-order mark: every other byte is zero
-  if (buf.length > 4 && buf[1] === 0 && buf[3] === 0) return new TextDecoder("utf-16le").decode(buf);
-  return new TextDecoder("utf-8").decode(buf);
+  if (buf.length > 4 && buf[1] === 0 && buf[3] === 0) return { text: new TextDecoder("utf-16le").decode(buf) };
+  return { text: new TextDecoder("utf-8").decode(buf) };
 }
 
 /** existing: "YYYY-MM|Channel" pairs already saved for this client. */
@@ -81,8 +84,9 @@ export function UploadPanel({ clientId, dashboardId, clientName, existing }: {
     let first = files.length === 0 && !periodTouched;
     for (const f of Array.from(list)) {
       let text: string;
+      let pdfBase64: string | undefined;
       try {
-        text = await readText(f);
+        ({ text, pdfBase64 } = await readText(f));
       } catch (e) {
         setResult({ error: `${f.name}: ${(e as Error).message}` });
         continue;
@@ -100,7 +104,7 @@ export function UploadPanel({ clientId, dashboardId, clientName, existing }: {
         first = false;
       }
       const detected = parse(text, m, "", "conversions", p).detectedSource ?? "";
-      added.push({ id: crypto.randomUUID(), name: f.name, text, channel: detected, channelTouched: false, conversionsAs: "leads", preview: parse(text, m, detected, "leads", p) });
+      added.push({ id: crypto.randomUUID(), name: f.name, text, pdfBase64, channel: detected, channelTouched: false, conversionsAs: "leads", preview: parse(text, m, detected, "leads", p) });
     }
     if (p !== period) setPeriod(p);
     if (m !== month) setMonth(m);
@@ -136,7 +140,7 @@ export function UploadPanel({ clientId, dashboardId, clientName, existing }: {
         dashboardId,
         note,
         period,
-        files: files.map((f) => ({ csv: f.text, filename: f.name, defaultMonth: month, defaultChannel: f.channel, conversionsAs: f.conversionsAs })),
+        files: files.map((f) => ({ csv: f.text, pdfBase64: f.pdfBase64, filename: f.name, defaultMonth: month, defaultChannel: f.channel, conversionsAs: f.conversionsAs })),
       });
       setResult(r);
       if (r.ok) reset();

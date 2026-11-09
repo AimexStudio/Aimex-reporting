@@ -1,16 +1,18 @@
 "use client";
 
+import { CATEGORIES, type ClientCategory } from "@/lib/category";
+
 import Link from "next/link";
 import { useActionState, useState } from "react";
 import {
   createClient, updateClient, resetClientPassword, deleteClient, saveMonthNote, deleteMonth,
-  addDashboard, renameDashboardAction, deleteDashboardAction,
+  addDashboard, renameDashboardAction, deleteDashboardAction, removeChannelAction,
   type FormState,
 } from "../actions";
 
 const CURRENCIES = ["ZAR", "USD", "GBP", "EUR", "AUD"];
 
-type ClientFields = { id?: string; name?: string; contactName?: string | null; currency?: string; adminNotes?: string | null; email?: string | null };
+type ClientFields = { id?: string; name?: string; contactName?: string | null; currency?: string; adminNotes?: string | null; email?: string | null; category?: ClientCategory };
 
 function Fields({ c, noEmail }: { c: ClientFields; noEmail?: boolean }) {
   return (
@@ -27,6 +29,17 @@ function Fields({ c, noEmail }: { c: ClientFields; noEmail?: boolean }) {
             {CURRENCIES.map((x) => <option key={x}>{x}</option>)}
           </select></label>
       </div>
+      <fieldset className="grid gap-2">
+        <legend className="mb-1 text-sm font-medium text-ink-2">Category</legend>
+        <div className="grid gap-3 sm:grid-cols-2">
+          {CATEGORIES.map((k) => (
+            <label key={k.id} className="flex cursor-pointer items-start gap-3 rounded-xl border border-line bg-surface p-3 has-[:checked]:border-night has-[:checked]:ring-1 has-[:checked]:ring-night">
+              <input type="radio" name="category" value={k.id} required defaultChecked={(c.category ?? "development") === k.id} className="mt-1 accent-[var(--color-night)]" />
+              <span><span className="block font-semibold">{k.label}</span><span className="block text-sm text-ink-3">{k.hint}</span></span>
+            </label>
+          ))}
+        </div>
+      </fieldset>
       <label className="field"><span>Private notes</span>
         <textarea className="input min-h-20" name="adminNotes" defaultValue={c.adminNotes ?? ""}
           placeholder="Only you can see these. Contract details, reporting quirks…" /></label>
@@ -55,8 +68,17 @@ function Credentials({ email, password }: { email: string; password: string }) {
   );
 }
 
-export function NewClientForm() {
+export function NewClientForm({ category = "development" }: { category?: ClientCategory } = {}) {
   const [s, action, pending] = useActionState<FormState, FormData>(createClient, {});
+  if (s.clientId && s.ok && !s.password) {
+    // the login already existed: it now also sees this client, with its own password
+    return (
+      <div className="grid gap-4">
+        <p role="status" className="rounded-xl border border-accent/40 bg-accent-soft/60 p-4 text-sm">{s.ok}</p>
+        <div><Link className="btn" href={`/admin/clients/${s.clientId}`}>Upload their first month</Link></div>
+      </div>
+    );
+  }
   if (s.clientId && s.email && s.password) {
     return (
       <div className="grid gap-4">
@@ -71,7 +93,7 @@ export function NewClientForm() {
   }
   return (
     <form action={action} className="grid gap-5">
-      <Fields c={{}} />
+      <Fields c={{ category }} />
       <label className="field"><span>Password</span>
         <input className="input" name="password" type="text" minLength={10} autoComplete="new-password"
           placeholder="Leave blank to generate a secure one" /></label>
@@ -188,5 +210,28 @@ export function DeleteDashboardButton({ clientId, dashboardId, name }: { clientI
       <input type="hidden" name="dashboardId" value={dashboardId} />
       <button className="btn btn-danger py-1.5">Delete dashboard</button>
     </form>
+  );
+}
+
+/** A month's (or week's) channels, each with a Remove button. */
+export function PeriodChannels({ clientId, dashboardId, month, label, channels }: {
+  clientId: string; dashboardId: string; month: string; label: string; channels: string[];
+}) {
+  return (
+    <ul className="mt-1 flex flex-wrap gap-1.5">
+      {channels.map((ch) => (
+        <li key={ch} className="inline-flex items-center gap-1 rounded-full bg-line-soft py-0.5 pl-2.5 pr-1 text-sm">
+          {ch}
+          <form action={removeChannelAction}
+            onSubmit={(e) => { if (!confirm(`Remove ${ch} from ${label}? Its figures and notes for ${label} are deleted. Other channels stay.`)) e.preventDefault(); }}>
+            <input type="hidden" name="clientId" value={clientId} />
+            <input type="hidden" name="dashboardId" value={dashboardId} />
+            <input type="hidden" name="month" value={month} />
+            <input type="hidden" name="channel" value={ch} />
+            <button aria-label={`Remove ${ch} from ${label}`} title={`Remove ${ch}`} className="grid size-5 place-items-center rounded-full text-ink-3 hover:bg-neg-soft hover:text-neg">×</button>
+          </form>
+        </li>
+      ))}
+    </ul>
   );
 }

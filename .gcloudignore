@@ -1,0 +1,13 @@
+# Files gcloud must not upload when deploying with --source (same rules as .dockerignore).
+# Never send these into a build: secrets, local data, build output, version control.
+.env
+.env.*
+!.env.example
+firebase-service-account.json
+*-service-account*.json
+.vercel
+.git
+node_modules
+.next
+data
+*.log

@@ -11,7 +11,10 @@
     "db:demo": "tsx scripts/seed.ts --demo",
     "check:firebase": "tsx scripts/check-firebase.ts",
     "typecheck": "tsc --noEmit",
-    "firebase:env": "tsx scripts/firebase-env.ts"
+    "firebase:env": "tsx scripts/firebase-env.ts",
+    "deploy:gcp": "bash scripts/deploy-gcp.sh",
+    "domain:gcp": "bash scripts/domain-gcp.sh",
+    "remove:channel": "tsx scripts/remove-channel.ts"
   },
   "dependencies": {
     "bcryptjs": "^3.0.3",

@@ -6,7 +6,7 @@ import type { DashboardData, MonthData } from "@/lib/data";
 import { formatMetric, formatPercent, monthLabel } from "@/lib/metrics";
 import { outcomeMetric, outcomeNoun } from "@/lib/insights";
 import { ReportBody } from "./Dashboard";
-import { BranchSection, BreakdownTable, ChannelTiles, GoalsSection, NotesPanel, Roadmap, RoiPlanner, SalesSection, TrafficSources } from "./ReportSections";
+import { BranchSection, BreakdownTable, ChannelTiles, GoalsSection, NotesPanel, Roadmap, RoiPlanner, RoomSalesSection, SalesSection, TrafficSources, ChannelsBanner } from "./ReportSections";
 import { FullscreenButton, PrintButton } from "./ReportTools";
 import { PeriodContext } from "./period-context";
 import { PeriodIconToggle } from "./PeriodIconToggle";
@@ -21,12 +21,14 @@ export interface CompanyLink { id: string; name: string; href: string }
  * The client report: a sidebar (logo, period, companies, sections) and the chosen section.
  * Sections: Overview, one page per channel, Goals and the ROI planner (when they apply).
  */
-export function ReportApp({ data, companies, currentCompany, manageHref, signOut }: {
+export function ReportApp({ data, companies, currentCompany, manageHref, signOut, clients }: {
   data: DashboardData;
   companies: CompanyLink[];
   currentCompany: string;
   manageHref?: string | null;
   signOut?: React.ReactNode;
+  /** Logins with several clients: the clients to switch between. */
+  clients?: { id: string; name: string }[];
 }) {
   const { client, settings } = data;
   const cur = client.currency;
@@ -42,6 +44,8 @@ export function ReportApp({ data, companies, currentCompany, manageHref, signOut
     setSelected((v === "week" ? data.weeks : data.months).at(-1)?.month ?? "");
   };
   const [section, setSection] = useState("overview");
+  // true while printing: the whole report is drawn, section after section
+  const [printAll, setPrintAll] = useState(false);
   const month = months.find((m) => m.month === selected);
 
   const channels = useMemo(
@@ -54,16 +58,77 @@ export function ReportApp({ data, companies, currentCompany, manageHref, signOut
   const sections: Section[] = [
     { id: "overview", label: group ? "Group overview" : "Overview", icon: "grid" },
     ...channels.map((c) => ({ id: `ch:${c}`, label: c, icon: /meta|facebook|instagram/i.test(c) ? "people" : /google/i.test(c) ? "search" : /web|site|analytics/i.test(c) ? "globe" : "chart" })),
-    ...(Object.keys(settings.sales ?? {}).length ? [{ id: "sales", label: "Sales", icon: "building" }] : []),
+    // Spectrum Collection shows room sales; Developments show unit sales.
+    ...(client.category === "collection"
+      ? (Object.keys(settings.roomSales ?? {}).length ? [{ id: "rooms", label: "Room sales", icon: "bed" }] : [])
+      : (Object.keys(settings.sales ?? {}).length ? [{ id: "sales", label: "Sales", icon: "building" }] : [])),
     ...(goals.length ? [{ id: "goals", label: "Goals", icon: "target" }] : []),
     ...(!group && hasSpend ? [{ id: "roi", label: "ROI planner", icon: "calc" }] : []),
   ];
   const active = sections.some((s) => s.id === section) ? section : "overview";
 
   const scopeName = group ? "All companies" : data.scope.name !== client.name ? data.scope.name : null;
-  const channelName = active.startsWith("ch:") ? active.slice(3) : null;
+  const channelName = !printAll && active.startsWith("ch:") ? active.slice(3) : null;
   const channelMonths = useMemo(() => (channelName ? scopeToChannel(months, channelName) : []), [months, channelName]);
   const chips = headlineChips(channelName ? channelMonths.find((m) => m.month === selected) : month, cur);
+
+  function renderSection(id: string): React.ReactNode {
+    if (id === "overview") {
+      return (
+        <>
+          <ChannelsBanner ids={settings.marketingChannels} />
+          <ReportBody months={months} currency={cur} selected={selected} onSelect={setSelected} scopeName={scopeName}
+            unit={group ? "company" : "channel"} showWorked={false} benchmark={settings.benchmark}
+            slots={{
+              afterHero: <NotesPanel notes={month?.sectionNotes.overview} title="Overview" />,
+              beforeNumbers: <Roadmap milestones={milestones} />,
+            }} />
+        </>
+      );
+    }
+    if (id.startsWith("ch:")) {
+      const ch = id.slice(3);
+      const cm = scopeToChannel(months, ch);
+      const c = cm.find((m) => m.month === selected)?.channels[0];
+      const b = c?.breakdowns;
+      return (
+        <ReportBody months={cm} currency={cur} selected={selected} onSelect={setSelected} scopeName={ch}
+          unit="channel" showWorked benchmark={settings.benchmark}
+          slots={{
+            afterHero: <NotesPanel notes={month?.sectionNotes[ch]} title={ch} />,
+            tiles: <ChannelTiles m={c?.metrics} b={b} currency={cur} benchmark={settings.benchmark} />,
+            afterTiles: b ? (
+              <>
+                <BreakdownTable b={b} currency={cur} channel={ch} month={selected} />
+                {b.sources?.length ? <TrafficSources rows={b.sources} month={selected} /> : null}
+                {b.branches?.length ? <BranchSection rows={b.branches} channel={ch} month={selected} currency={cur} /> : null}
+              </>
+            ) : null,
+          }} />
+      );
+    }
+    if (id === "rooms") return (
+      <SectionPage title="Room sales" selected={selected} months={[]} onSelect={setSelected}>
+        <RoomSalesSection snapshots={settings.roomSales} currency={cur} />
+      </SectionPage>
+    );
+    if (id === "sales") return (
+      <SectionPage title="Sales" selected={selected} months={months} onSelect={setSelected}>
+        <SalesSection sales={settings.sales} month={selected} currency={cur} kind={view} />
+      </SectionPage>
+    );
+    if (id === "goals") return (
+      <SectionPage title="Goals" selected={selected} months={months} onSelect={setSelected}>
+        <GoalsSection goals={goals} months={months} selected={selected} currency={cur} />
+      </SectionPage>
+    );
+    if (id === "roi") return (
+      <SectionPage title="ROI planner" selected={selected} months={months} onSelect={setSelected}>
+        <RoiPlanner key={selected} month={month} currency={cur} roi={settings.roi} />
+      </SectionPage>
+    );
+    return null;
+  }
 
   return (
     <PeriodContext.Provider value={view}>
@@ -81,6 +146,15 @@ export function ReportApp({ data, companies, currentCompany, manageHref, signOut
           <p className="text-xs text-white/50 lg:mt-3 lg:text-center">Marketing report by Aimex Studio</p>
         </div>
 
+        {clients && (
+          <label className="mx-5 mt-5 grid gap-1 text-xs text-white/50 lg:mx-4 print:hidden">
+            Client
+            <select className="rounded-lg bg-white/10 px-3 py-2 text-sm text-white ring-1 ring-white/15 [&>option]:text-ink" value={client.id}
+              onChange={(e) => { window.location.href = `/dashboard/switch/${encodeURIComponent(e.target.value)}`; }}>
+              {clients.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+            </select>
+          </label>
+        )}
         {hasMonths && hasWeeks && (
           <div className="mx-5 mt-5 flex items-center justify-between gap-3 lg:mx-4">
             <span className="text-xs text-white/50">{view === "week" ? "Weekly" : "Monthly"} view</span>
@@ -142,7 +216,7 @@ export function ReportApp({ data, companies, currentCompany, manageHref, signOut
               ))}
               <div className="flex items-center gap-2 print:hidden [&_button]:text-ink [&_button]:ring-line [&_button:hover]:bg-page">
                 <FullscreenButton />
-                <PrintButton />
+                <PrintButton onPrepare={() => setPrintAll(true)} onDone={() => setPrintAll(false)} />
                 <div className="lg:hidden">{signOut}</div>
               </div>
             </div>
@@ -154,50 +228,10 @@ export function ReportApp({ data, companies, currentCompany, manageHref, signOut
           )}
         </header>
 
-        {active === "overview" && (
-          <ReportBody months={months} currency={cur} selected={selected} onSelect={setSelected} scopeName={scopeName}
-            unit={group ? "company" : "channel"} showWorked={false} benchmark={settings.benchmark}
-            slots={{
-              afterHero: <NotesPanel notes={month?.sectionNotes.overview} title="Overview" />,
-              beforeNumbers: <Roadmap milestones={milestones} />,
-            }} />
-        )}
-        {channelName && (
-          <ReportBody months={channelMonths} currency={cur} selected={selected} onSelect={setSelected} scopeName={channelName}
-            unit="channel" showWorked benchmark={settings.benchmark}
-            slots={{
-              afterHero: <NotesPanel notes={month?.sectionNotes[channelName]} title={channelName} />,
-              tiles: (() => {
-                const c = channelMonths.find((m) => m.month === selected)?.channels[0];
-                return <ChannelTiles m={c?.metrics} b={c?.breakdowns} currency={cur} benchmark={settings.benchmark} />;
-              })(),
-              afterTiles: (() => {
-                const b = channelMonths.find((m) => m.month === selected)?.channels[0]?.breakdowns;
-                return b ? (
-                  <>
-                    <BreakdownTable b={b} currency={cur} channel={channelName} month={selected} />
-                    {b.sources?.length ? <TrafficSources rows={b.sources} month={selected} /> : null}
-                    {b.branches?.length ? <BranchSection rows={b.branches} channel={channelName} month={selected} currency={cur} /> : null}
-                  </>
-                ) : null;
-              })(),
-            }} />
-        )}
-        {active === "sales" && (
-          <SectionPage title="Sales" selected={selected} months={months} onSelect={setSelected}>
-            <SalesSection sales={settings.sales} month={selected} currency={cur} kind={view} />
-          </SectionPage>
-        )}
-        {active === "goals" && (
-          <SectionPage title="Goals" selected={selected} months={months} onSelect={setSelected}>
-            <GoalsSection goals={goals} months={months} selected={selected} currency={cur} />
-          </SectionPage>
-        )}
-        {active === "roi" && (
-          <SectionPage title="ROI planner" selected={selected} months={months} onSelect={setSelected}>
-            <RoiPlanner key={selected} month={month} currency={cur} roi={settings.roi} />
-          </SectionPage>
-        )}
+        {/* On screen: the chosen section. When printing: every section, each on its own pages. */}
+        {(printAll ? sections.map((x) => x.id) : [active]).map((id) => (
+          <div key={id} className={printAll ? "print-section" : undefined}>{renderSection(id)}</div>
+        ))}
 
         <footer className="px-5 pb-12 pt-4 text-sm text-ink-3 sm:px-8 lg:px-12">
           Prepared by Aimex Studio. Results are updated monthly. Questions about a number? Contact your account manager.
@@ -278,6 +312,7 @@ function NavIcon({ name }: { name: string }) {
     chart: <><path d="M4 20V10M10 20V4M16 20v-7M22 20H2" {...p} /></>,
     target: <><circle cx="12" cy="12" r="8" {...p} /><circle cx="12" cy="12" r="4" {...p} /><circle cx="12" cy="12" r="0.8" {...p} /></>,
     globe: <><circle cx="12" cy="12" r="8.5" {...p} /><path d="M3.5 12h17M12 3.5c2.3 2.4 3.5 5.2 3.5 8.5s-1.2 6.1-3.5 8.5c-2.3-2.4-3.5-5.2-3.5-8.5s1.2-6.1 3.5-8.5z" {...p} /></>,
+    bed: <><path d="M3 19V6M3 15h18v4M21 15v-3a3 3 0 0 0-3-3h-7v6M7 12.5a1.5 1.5 0 1 0 0-.01" {...p} /></>,
     building: <><path d="M4 21V5.5L12 3l8 2.5V21M4 21h16M9 21v-4h6v4M8 8h.01M12 8h.01M16 8h.01M8 12h.01M12 12h.01M16 12h.01" {...p} /></>,
     calc: <><rect x="5" y="3" width="14" height="18" rx="2" {...p} /><path d="M8 7h8M8 11h.01M12 11h.01M16 11h.01M8 15h.01M12 15h.01M16 15h.01M8 18h8" {...p} /></>,
   };
